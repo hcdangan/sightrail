@@ -98,6 +98,7 @@ class StreamStartRequest(APIModel):
     solution_kwargs: dict[str, Any] = Field(default_factory=dict)
     region: Any = None
     region_kind: str | None = None
+    region_normalised: bool = False
     show_boxes: bool = True
     conf: float = Field(default=0.25, ge=0.0, le=1.0)
     iou: float = Field(default=0.7, ge=0.0, le=1.0)
@@ -116,6 +117,7 @@ class VideoAnalysisRequest(APIModel):
     solution_kwargs: dict[str, Any] = Field(default_factory=dict)
     region: Any = None
     region_kind: str | None = None
+    region_normalised: bool = False
     conf: float = Field(default=0.25, ge=0.0, le=1.0)
     iou: float = Field(default=0.7, ge=0.0, le=1.0)
     imgsz: int = Field(default=640, ge=32, le=4096)

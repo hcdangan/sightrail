@@ -198,6 +198,57 @@ def list_solutions() -> list[dict[str, Any]]:
     return SOLUTION_CATALOG
 
 
+def _region_to_pixels(region: Any, shape: tuple[int, ...] | None) -> tuple[Any, bool]:
+    """Scale a 0..1 ROI into source pixels.
+
+    Ultralytics solutions take region geometry in source pixel coordinates, but
+    the UI cannot know the frame size before a webcam stream starts. Sending
+    fractions and resolving them against the real frame size keeps a saved ROI
+    correct at every resolution instead of pinned to whatever the defaults were
+    authored against.
+
+    Returns ``(region, resolved)``. ``resolved`` is False when the frame size was
+    unavailable, which the caller must treat as "no region" — passing 0..1
+    fractions through as if they were pixels would silently place the ROI in the
+    top-left corner of the frame rather than reporting a problem.
+
+    A region that already looks like pixels (any coordinate above 1) is passed
+    through untouched, so pixel-space callers keep working.
+    """
+    if not region or not shape:
+        return region, False
+
+    height, width = int(shape[0]), int(shape[1])
+    if height <= 0 or width <= 0:
+        return region, False
+
+    def _is_point(value: Any) -> bool:
+        """A usable coordinate pair — some clients can send `[[1]]`."""
+        return isinstance(value, (list, tuple)) and len(value) >= 2
+
+    def _convert(points: Any) -> Any:
+        return [(float(point[0]) * width, float(point[1]) * height) for point in points]
+
+    def _looks_normalised(points: Any) -> bool:
+        if not isinstance(points, (list, tuple)) or len(points) < 2:
+            return False
+        if not all(_is_point(point) for point in points):
+            return False
+        try:
+            return all(0.0 <= float(value) <= 1.0 for point in points for value in point[:2])
+        except (TypeError, ValueError):
+            return False
+
+    # Multi-polygon: a list of polygons rather than a list of points.
+    if isinstance(region, (list, tuple)) and region and isinstance(region[0], (list, tuple)) and region[0]:
+        if isinstance(region[0][0], (list, tuple)):
+            polygons = [polygon for polygon in region if _looks_normalised(polygon)]
+            return ([_convert(polygon) for polygon in polygons], True) if polygons else (None, False)
+        if _looks_normalised(region):
+            return _convert(region), True
+    return None, False
+
+
 def _build_solution(
     solution_id: str,
     *,
@@ -205,6 +256,8 @@ def _build_solution(
     region: Any,
     region_kind: str | None,
     overrides: dict[str, Any],
+    frame_shape: tuple[int, ...] | None = None,
+    region_normalised: bool = False,
 ) -> Any:
     """Instantiate a built-in solution, degrading gracefully when unsupported."""
     if solution_id in {"none", ""}:
@@ -217,8 +270,15 @@ def _build_solution(
     if solution_cls is None:
         raise ValueError(f"Solution '{solution_id}' is not available in this Ultralytics build.")
 
-    kwargs: dict[str, Any] = {"model": model_id, "verbose": False}
     spec = SOLUTION_BY_ID.get(solution_id, {})
+    if region_normalised and spec.get("needs_region"):
+        region, resolved = _region_to_pixels(region, frame_shape)
+        if not resolved:
+            # Better to run without an ROI than with one in the wrong place; the
+            # sessions endpoint reports this so the UI can say so.
+            region = None
+
+    kwargs: dict[str, Any] = {"model": model_id, "verbose": False}
     if spec.get("needs_region") and region:
         if spec.get("region_kind") == "line" and region_kind != "polygons":
             kwargs["region"] = [tuple(point) for point in region]
@@ -234,8 +294,14 @@ def _build_solution(
         if key in accepted or key in allowed:
             kwargs[key] = value
 
-    # Only pass arguments the class actually declares.
-    kwargs = {k: v for k, v in kwargs.items() if k in accepted or k == "model"}
+    # Only pass arguments the class actually declares — but `region` is special.
+    # Several solutions (ObjectCounter among them) are declared as
+    # `def __init__(self, **kwargs)` and forward `region` to the base class, so it
+    # is absent from `signature.parameters` and would be filtered out here. That
+    # silently discarded the caller's ROI: the solution fell back to its own
+    # internal default while the API still reported the region as applied.
+    passthrough = {"model", "region"}
+    kwargs = {k: v for k, v in kwargs.items() if k in accepted or k in passthrough}
     return solution_cls(**kwargs)
 
 
@@ -333,8 +399,22 @@ class StreamConfig:
     solution_kwargs: dict[str, Any] = field(default_factory=dict)
     region: Any = None
     region_kind: str | None = None
+    #: When true, ``region`` holds 0..1 fractions instead of source pixels. The
+    #: UI uses this because it cannot know the frame size before the stream
+    #: starts: a default region hard-coded in pixels is only correct for one
+    #: resolution, which is exactly how the reported "line ROI is in the wrong
+    #: place" behaviour arose.
+    region_normalised: bool = False
+    #: Source frame ``(height, width)`` when it is known before the first frame
+    #: (a video file's dimensions, or the browser's camera size). Required to
+    #: resolve a normalised region into pixels.
+    frame_shape: tuple[int, int] | None = None
     show_boxes: bool = True
     jpeg_quality: int = 80
+    #: Encode an annotated JPEG per frame. The client camera loop draws its own
+    #: overlay from the geometry, so it turns this off and saves a full JPEG
+    #: encode plus a base64 copy on every frame.
+    render_frames: bool = True
     max_history: int = 240
 
 
@@ -353,6 +433,8 @@ class StreamSession:
             region=config.region,
             region_kind=config.region_kind,
             overrides=config.solution_kwargs,
+            frame_shape=config.frame_shape,
+            region_normalised=config.region_normalised,
         )
         self.counts: dict[str, Any] = {}
         self.history: deque[dict[str, Any]] = deque(maxlen=config.max_history)
@@ -671,6 +753,8 @@ class LiveSession:
             region=config.region,
             region_kind=config.region_kind,
             overrides=config.solution_kwargs,
+            frame_shape=config.frame_shape,
+            region_normalised=config.region_normalised,
         )
         self.frames = 0
         self.ema_ms = 0.0
@@ -717,11 +801,11 @@ class LiveSession:
         if self.solution is not None:
             try:
                 annotated, counters = apply_solution(self.solution, frame.copy(), self.frames)
-                if annotated is not None:
+                if annotated is not None and self.config.render_frames:
                     rendered_url = frame_to_data_url(annotated, self.config.jpeg_quality)
             except Exception:
                 self.solution = None
-        elif self.config.show_boxes and result is not None:
+        elif self.config.show_boxes and self.config.render_frames and result is not None:
             with contextlib.suppress(Exception):
                 rendered_url = frame_to_data_url(result.plot(), self.config.jpeg_quality)
 

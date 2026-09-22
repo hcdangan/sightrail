@@ -21,7 +21,11 @@ import { toast } from '@/lib/stores/toasts';
 import { classColor, formatMs } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { SourcePicker } from '@/components/input/SourcePicker';
+import { RegionEditor, type NormRegion } from '@/components/input/RegionEditor';
+import { Viewfinder } from '@/components/input/Viewfinder';
+import { useRegionForSolution } from '@/lib/hooks/useRegionForSolution';
 import { emptySource, type SourceState } from '@/lib/sources';
+import { overlayBoxes } from '@/lib/results';
 import { useJobStream, useLiveInference } from '@/lib/hooks/useWebSockets';
 import { LogConsole } from '@/components/ui/LogConsole';
 import {
@@ -39,7 +43,6 @@ import {
   Switch,
 } from '@/components/ui/primitives';
 import { LineChart } from '@/components/charts/LineChart';
-import { CanvasOverlay } from '@/components/results/CanvasOverlay';
 import { useCamera } from '@/lib/hooks/useCamera';
 
 type StudioTab = 'server' | 'client' | 'track' | 'video';
@@ -81,6 +84,14 @@ export function StudioPage() {
   const [source, setSource] = useState<SourceState>(emptySource);
 
   const solutionMeta: SolutionMeta | undefined = solutions?.solutions.find((entry) => entry.id === solution);
+
+  // The ROI follows the selected solution: a counting line and a parking polygon
+  // are not interchangeable, so switching solutions reloads that solution's own
+  // default geometry.
+  const [region, setRegion] = useRegionForSolution(solution, solutionMeta?.default_region);
+  const [useRegion, setUseRegion] = useState(true);
+
+  const activeRegion = solutionMeta?.needs_region && useRegion && region.length > 0 ? region : null;
 
   useEffect(() => {
     if (!detectModels.some((entry) => entry.value === model) && detectModels[0]) setModel(detectModels[0].value);
@@ -167,6 +178,19 @@ export function StudioPage() {
             </Card>
           )}
 
+          {solutionMeta?.needs_region && (
+            <RegionEditor
+              region={region}
+              onChange={setRegion}
+              defaultRegion={solutionMeta.default_region}
+              regionKind={solutionMeta.region_kind}
+              previewUrl={source.previewUrl}
+              enabled={useRegion}
+              onEnabledChange={setUseRegion}
+              hint="Coordinates are sent as fractions of the frame, so one region stays correct for a 640x480 webcam and a 4K video alike. The API resolves them against the real source size."
+            />
+          )}
+
           <Card>
             <CardHeader title="Tracker reference" description="How the six built-in trackers differ." />
             <ul className="space-y-2">
@@ -188,7 +212,15 @@ export function StudioPage() {
 
         <div className="min-w-0 space-y-4">
           {tab === 'client' && (
-            <ClientCameraView model={model} tracker={tracker || null} solution={solution} conf={conf} device={device} />
+            <ClientCameraView
+              model={model}
+              tracker={tracker || null}
+              solution={solution}
+              conf={conf}
+              device={device}
+              region={activeRegion}
+              regionKind={solutionMeta?.region_kind ?? null}
+            />
           )}
           {tab === 'server' && (
             <ServerStreamView
@@ -199,29 +231,22 @@ export function StudioPage() {
               device={device}
               showBoxes={showBoxes}
               source={source}
+              region={activeRegion}
+              regionKind={solutionMeta?.region_kind ?? null}
             />
           )}
           {tab === 'track' && <TrackView model={model} tracker={tracker || 'bytetrack.yaml'} conf={conf} device={device} source={source} />}
-          {tab === 'video' && <VideoJobView model={model} tracker={tracker || null} solution={solution} conf={conf} device={device} source={source} />}
-
-          {solutionMeta?.needs_region && (
-            <Card>
-              <CardHeader title="Region of interest" description="Solutions such as counters, heatmaps and alarms use this geometry." />
-              <div className="overflow-hidden rounded-lg border border-ink-700/60">
-                {source.previewUrl ? (
-                  <CanvasOverlay
-                    imageUrl={source.previewUrl}
-                    boxes={[]}
-                    region={solutionMeta.default_region as number[][] | number[][][] | undefined}
-                    className="max-h-80"
-                  />
-                ) : (
-                  <div className="grid h-40 place-items-center text-[11px] text-slate-500">
-                    Region defaults to the frame centre for webcam sources.
-                  </div>
-                )}
-              </div>
-            </Card>
+          {tab === 'video' && (
+            <VideoJobView
+              model={model}
+              tracker={tracker || null}
+              solution={solution}
+              conf={conf}
+              device={device}
+              source={source}
+              region={activeRegion}
+              regionKind={solutionMeta?.region_kind ?? null}
+            />
           )}
 
           {overlaySettings.showTrackIds && (
@@ -243,16 +268,21 @@ function ClientCameraView({
   solution,
   conf,
   device,
+  region,
+  regionKind,
 }: {
   model: string;
   tracker: string | null;
   solution: string;
   conf: number;
   device: string;
+  region: NormRegion | null;
+  regionKind: string | null;
 }) {
   const { videoRef, canvasRef, status, error, start, stop, captureFrame, devices, selectedDeviceId, selectDevice } = useCamera();
   const live = useLiveInference();
   const [measuring, setMeasuring] = useState(false);
+  const [mediaSize, setMediaSize] = useState<{ width: number; height: number } | null>(null);
   const settings = usePreferences((state) => state.overlay);
 
   // Push frames on a rAF loop while measuring; the hook applies back-pressure.
@@ -268,11 +298,31 @@ function ClientCameraView({
     return () => cancelAnimationFrame(frameHandle);
   }, [measuring, captureFrame, live]);
 
+  // The boxes come back in the analysed frame's pixel space, so they have to be
+  // scaled to whatever size the video element actually renders at.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || status !== 'streaming') return;
+    const sync = () =>
+      setMediaSize(video.videoWidth > 0 ? { width: video.videoWidth, height: video.videoHeight } : null);
+    sync();
+    video.addEventListener('loadedmetadata', sync);
+    video.addEventListener('resize', sync);
+    return () => {
+      video.removeEventListener('loadedmetadata', sync);
+      video.removeEventListener('resize', sync);
+    };
+  }, [status, videoRef]);
+
   useEffect(() => {
     setMeasuring(false);
   }, [status]);
 
   const result = live.last?.result ?? null;
+  const boxes = useMemo(
+    () => overlayBoxes(result, mediaSize?.width ?? 0, mediaSize?.height ?? 0, settings.showLabels),
+    [result, mediaSize, settings.showLabels],
+  );
 
   return (
     <>
@@ -316,6 +366,12 @@ function ClientCameraView({
                       conf,
                       showBoxes: true,
                       jpegQuality: 72,
+                      // Geometry is drawn locally from `result`, so there is no
+                      // reason to make the API encode and ship a JPEG per frame.
+                      renderFrames: false,
+                      region,
+                      regionKind,
+                      frameShape: mediaSize ? [mediaSize.height, mediaSize.width] : null,
                     });
                     setMeasuring(true);
                   } else {
@@ -339,13 +395,15 @@ function ClientCameraView({
           </div>
         )}
 
-        <div className="relative overflow-hidden rounded-xl border border-ink-700/70 bg-ink-950">
-          <video ref={videoRef} className="block w-full" playsInline muted />
-          <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-
-          {live.last?.rendered && settings.showMasks && (
-            <img src={live.last.rendered} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-fill opacity-0" />
-          )}
+        <Viewfinder
+          aspectRatio={mediaSize ? `${mediaSize.width} / ${mediaSize.height}` : '4 / 3'}
+          region={region ?? undefined}
+          boxes={boxes}
+        >
+          <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" playsInline muted />
+          {/* Capture buffer only: `useCamera` encodes this to a JPEG data URL.
+              It is never shown, and it must not be the overlay canvas. */}
+          <canvas ref={canvasRef} className="pointer-events-none absolute size-0 opacity-0" aria-hidden />
 
           {status !== 'streaming' && (
             <div className="absolute inset-0 grid place-items-center bg-ink-950/70">
@@ -362,7 +420,7 @@ function ClientCameraView({
               <span className="size-1.5 animate-pulse-slow rounded-full bg-danger-400" /> live
             </span>
           )}
-        </div>
+        </Viewfinder>
 
         {(error || live.error) && (
           <p className="mt-2 rounded-lg border border-danger-500/40 bg-danger-500/10 p-2 text-[11px] text-danger-300">
@@ -429,6 +487,8 @@ function ServerStreamView({
   device,
   showBoxes,
   source,
+  region,
+  regionKind,
 }: {
   model: string;
   tracker: string | null;
@@ -437,6 +497,8 @@ function ServerStreamView({
   device: string;
   showBoxes: boolean;
   source: SourceState;
+  region: NormRegion | null;
+  regionKind: string | null;
 }) {
   const [session, setSession] = useState<SessionHandle | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
@@ -453,10 +515,18 @@ function ServerStreamView({
         device,
         show_boxes: showBoxes,
         jpeg_quality: 80,
+        // Normalised geometry: the API probes the real source size and scales it,
+        // which is what makes the ROI correct for both files and camera indexes.
+        region,
+        region_kind: regionKind,
+        region_normalised: true,
       }),
     onSuccess: (data) => {
       setSession(data);
       toast.success('Session opened', `${data.solution} · ${data.model.split(/[\\/]/).pop()}`);
+      if (data.region_applied === false && data.region_note) {
+        toast.warning('Region of interest ignored', data.region_note);
+      }
     },
     onError: (error: Error) => toast.error('Could not open the session', error.message),
   });
@@ -716,6 +786,8 @@ function VideoJobView({
   conf,
   device,
   source,
+  region,
+  regionKind,
 }: {
   model: string;
   tracker: string | null;
@@ -723,6 +795,8 @@ function VideoJobView({
   conf: number;
   device: string;
   source: SourceState;
+  region: NormRegion | null;
+  regionKind: string | null;
 }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const stream = useJobStream(jobId);
@@ -730,7 +804,18 @@ function VideoJobView({
   const notified = useRef(false);
 
   const start = useMutation({
-    mutationFn: () => streamApi.analyseVideo({ model, source: source.spec, tracker, solution, conf, device }),
+    mutationFn: () =>
+      streamApi.analyseVideo({
+        model,
+        source: source.spec,
+        tracker,
+        solution,
+        conf,
+        device,
+        region,
+        region_kind: regionKind,
+        region_normalised: true,
+      }),
     onSuccess: (job) => {
       setJobId(job.id);
       notified.current = false;

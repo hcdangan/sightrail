@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -172,6 +175,140 @@ def test_the_recommended_tracker_is_the_default_the_schemas_use():
         assert default == DEFAULT_TRACKER, (
             f"{schema.__name__} defaults to {default!r}, but the UI badges {DEFAULT_TRACKER!r} as the default"
         )
+
+
+# ----------------------------------------------------------------- ROI regions
+
+
+def test_normalised_region_is_scaled_to_source_pixels():
+    """A 0..1 ROI must land on the real frame, not in its top-left corner.
+
+    Ultralytics solutions take pixel geometry. The UI only knows fractions, so
+    without this conversion a line at (0.15, 0.40) would be read as pixel 0.15 on
+    a 1280-wide frame — invisible at the corner rather than across the middle.
+    """
+    from sightrail.core.streaming import _region_to_pixels
+
+    region = [[0.0, 0.5], [1.0, 0.5]]
+    scaled, resolved = _region_to_pixels(region, (720, 1280))
+
+    assert resolved is True
+    assert scaled == [(0.0, 360.0), (1280.0, 360.0)]
+
+
+def test_multi_polygon_region_scales_every_polygon():
+    from sightrail.core.streaming import _region_to_pixels
+
+    region = [[[0.0, 0.0], [0.5, 0.0], [0.5, 0.5]], [[0.5, 0.5], [1.0, 1.0]]]
+    scaled, resolved = _region_to_pixels(region, (480, 640))
+
+    assert resolved is True
+    assert scaled[0] == [(0.0, 0.0), (320.0, 0.0), (320.0, 240.0)]
+    assert scaled[1] == [(320.0, 240.0), (640.0, 480.0)]
+
+
+def test_region_without_a_frame_size_is_not_treated_as_pixels():
+    """No frame size must mean "no ROI", never "ROI in the wrong place".
+
+    The caller drops the region on a False result and the sessions endpoint
+    reports that it was ignored, so the user is told rather than shown a line
+    hugging the top-left corner.
+    """
+    from sightrail.core.streaming import _region_to_pixels
+
+    for shape in (None, (0, 0), (0, 1280)):
+        _region, resolved = _region_to_pixels([[0.5, 0.5], [0.9, 0.9]], shape)
+        assert resolved is False, f"shape {shape} should not resolve"
+
+
+def test_pixel_space_region_is_left_alone():
+    """A caller already working in pixels keeps its geometry untouched."""
+    from sightrail.core.streaming import _region_to_pixels
+
+    region = [[100, 300], [900, 300]]
+    scaled, resolved = _region_to_pixels(region, (480, 640))
+
+    assert resolved is False
+    assert scaled is None, "pixel-space geometry is not normalised, so it is not converted here"
+
+
+def test_region_to_pixels_tolerates_junk():
+    """A malformed polygon must not raise: the WebSocket path would 500.
+
+    `[[1]]` is the interesting case — a "point" with no y coordinate used to pass
+    the normalised-range check and then blow up while scaling.
+    """
+    from sightrail.core.streaming import _region_to_pixels
+
+    for junk in ([], None, "not-a-region", [[]], [[1]], [[[0.5]]]):
+        _region, resolved = _region_to_pixels(junk, (480, 640))
+        assert resolved is False, f"{junk!r} should not resolve"
+
+
+def test_region_reaches_a_kwargs_style_solution(monkeypatch):
+    """A solution declared as ``__init__(self, **kwargs)`` must still get the ROI.
+
+    ``ObjectCounter`` and friends take ``**kwargs`` and forward ``region`` to the
+    base class, so `region` never appears in ``inspect.signature``. The handler
+    that drops undeclared arguments therefore dropped the region too: every live
+    analytics mode silently ignored the ROI while the sessions endpoint reported
+    ``region_applied: true``. A stubbed class pins the behaviour without loading a
+    model.
+    """
+    from types import SimpleNamespace
+
+    from sightrail.core import streaming
+
+    captured: dict[str, Any] = {}
+
+    class StubSolution:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(streaming, "SOLUTION_BY_ID", {"object_counter": streaming.SOLUTION_BY_ID["object_counter"]})
+    fake_module = SimpleNamespace(ObjectCounter=StubSolution)
+    monkeypatch.setitem(sys.modules, "ultralytics.solutions", fake_module)
+    monkeypatch.setattr("ultralytics.solutions", fake_module, raising=False)
+
+    built = streaming._build_solution(
+        "object_counter",
+        model_id="yolo11n.pt",
+        region=[[0.1, 0.4], [0.9, 0.4]],
+        region_kind="line",
+        overrides={},
+        frame_shape=(480, 640),
+        region_normalised=True,
+    )
+
+    assert built is not None
+    assert captured.get("region") == [(64.0, 192.0), (576.0, 192.0)], "the ROI was dropped before reaching the solution"
+
+
+def test_region_is_absent_when_the_frame_size_is_unknown(monkeypatch):
+    """Unknown source size must not fall back to something plausible-looking."""
+    from types import SimpleNamespace
+
+    from sightrail.core import streaming
+
+    captured: dict[str, Any] = {}
+
+    class StubSolution:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "ultralytics.solutions", SimpleNamespace(ObjectCounter=StubSolution))
+
+    streaming._build_solution(
+        "object_counter",
+        model_id="yolo11n.pt",
+        region=[[0.5, 0.5], [0.9, 0.9]],
+        region_kind="line",
+        overrides={},
+        frame_shape=None,
+        region_normalised=True,
+    )
+
+    assert "region" not in captured, "an unresolvable ROI must be omitted, not passed through as pixels"
 
 
 # ----------------------------------------------------------------- engine util

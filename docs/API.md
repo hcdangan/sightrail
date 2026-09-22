@@ -387,6 +387,36 @@ Opens a server-side MJPEG session.
 Response: `session_id`, `mjpeg_url`, `stats_url`, the resolved `source`, the
 solution metadata, the model path and the class-name map.
 
+### Region of interest
+
+`region` takes a line (`[[x, y], [x, y]]`) or one/more polygons
+(`[[[x, y], …], …]`). Ultralytics solutions consume **source pixels**, and by
+default that is what the API expects.
+
+Set **`region_normalised: true`** to send 0..1 fractions instead. The API then
+probes the real source size — `cv2.VideoCapture` for a video file or camera index
+— and scales the region before building the solution. This is how the UI works,
+because a browser cannot know a video's dimensions before the stream starts, and
+fractions keep one saved ROI correct at every resolution.
+
+If the source size cannot be read, the region is **ignored rather than applied
+approximately**, and the response says so:
+
+```json
+{ "region_applied": false,
+  "region_note": "The source size could not be read, so the region of interest was ignored. …" }
+```
+
+`region_applied` is `true` when the requested geometry reached the solution, and
+absent for solutions that need no region.
+
+### Rendered frames
+
+`render_frames` (default `true`) controls the per-frame annotated JPEG returned as
+`rendered`. The client camera loop sets it to `false` because it draws its own
+overlay from the returned geometry, which saves a full JPEG encode and a base64
+copy on every frame.
+
 | Endpoint | Description |
 | --- | --- |
 | `GET /api/stream/sessions` | Open sessions with frames, FPS and counters |
@@ -418,11 +448,16 @@ carrying JPEG data URLs.
 { "type": "config", "config": {
     "model": "yolo11n.pt", "device": "cuda:0", "tracker": "bytetrack.yaml",
     "solution": "heatmap", "show_boxes": true, "jpeg_quality": 78,
-    "conf": 0.3, "iou": 0.7, "imgsz": 640, "region": null } }
+    "conf": 0.3, "iou": 0.7, "imgsz": 640,
+    // Normalised ROI + the camera's own size, so the API can scale it. Set
+    // render_frames false to skip the per-frame annotated JPEG: the loop draws
+    // the overlay itself.
+    "region": [[0.1, 0.4], [0.9, 0.4]], "region_kind": "line",
+    "region_normalised": true, "frame_shape": [480, 640],
+    "render_frames": false } }
 { "type": "frame", "data": "data:image/jpeg;base64,…" }
 { "type": "reset" }                          // clears tracker + solution state
 { "type": "stop" }                           // closes the session
-
 // → server → client
 { "type": "ready", "session": "…", "model": "…", "names": { "0": "person" } }
 { "type": "result", "frame": 42, "latency_ms": 18.4, "avg_latency_ms": 21.1,

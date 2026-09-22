@@ -85,6 +85,45 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **The webcam loop drew no detections.** In *Track & Stream → Webcam (client
+  loop)*, `useCamera`'s canvas was styled `absolute inset-0 h-full w-full` while
+  the hook sets its `width`/`height` attributes to the captured frame. CSS won, so
+  the capture buffer was also acting as the overlay canvas and its intrinsic
+  backing store was zeroed — every detection was drawn into nothing. Boxes reached
+  the page and appeared only in the sidebar *Live detections* list. The capture
+  canvas is now hidden and a separate overlay canvas draws the geometry, scaled
+  from the analysed frame (`result.original_shape`) to the media's rendered size
+  (`lib/results.ts::overlayBoxes`). The server-rendered JPEG that was being
+  fetched every frame and displayed at `opacity-0` is no longer requested
+  (`render_frames: false`), which removes a full JPEG encode plus a base64 copy
+  per frame from the loop.
+* **The region of interest could not be adjusted, though the UI said it could.**
+  The Studio advertised *"you can adjust below"* and the Solutions page said
+  *"adjust it in the Sightrail sidebar"*, but no editor existed — only a static
+  preview of the catalogue default, and the webcam loop never sent a region at
+  all. What was sent was in source pixels while the defaults are authored against
+  a nominal 1000x800 frame, so a line meant for a 640x480 webcam landed elsewhere
+  on any other resolution. There is now a real `RegionEditor`: drag a vertex to
+  move it, *Reset* to restore the default, and a toggle to ignore the ROI. Both
+  the client loop and the server stream send **normalised 0..1** geometry
+  (`region_normalised`) which the API resolves against the probed source size, so
+  one saved region is correct at every resolution. If the size cannot be read the
+  region is ignored rather than applied approximately, and the response reports
+  `region_applied: false` with a reason the UI surfaces as a warning.
+* **The region of interest was discarded before it reached the solution.** Even
+  once a region was sent, `_build_solution` filtered its arguments down to those
+  in `inspect.signature(cls.__init__)`. Ultralytics declares several solutions as
+  `def __init__(self, **kwargs)` — `ObjectCounter` among them — and forwards
+  `region` to the base class, so `region` is absent from the signature and was
+  dropped. Every live analytics mode therefore ignored the ROI while the new
+  `region_applied` flag reported `true`. `region` now passes through alongside
+  `model`, and `test_region_reaches_a_kwargs_style_solution` pins it with a stub,
+  so the check needs no model weights.
+* `_region_to_pixels` raised `IndexError` on a malformed point such as `[[1]]` — a
+  "point" with no y coordinate passed the normalised-range check and then blew up
+  while scaling, which would have been an unhandled error on the WebSocket path.
+  Coordinate pairs are now validated before scaling, and such input resolves to
+  "no region" instead.
 * `FORMAT_NOTES` keyed the curated LiteRT entry as `"tflite"` while the engine
   reports `"litert"`, so the format matrix rendered that row with the raw engine
   label and no note. The entry is now keyed correctly and a duplicate `"litert"`

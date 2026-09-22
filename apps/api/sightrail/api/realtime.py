@@ -99,8 +99,11 @@ async def live_socket(websocket: WebSocket) -> None:
                         solution_kwargs=config_payload.get("solution_kwargs") or {},
                         region=config_payload.get("region"),
                         region_kind=config_payload.get("region_kind"),
+                        region_normalised=bool(config_payload.get("region_normalised", False)),
+                        frame_shape=config_payload.get("frame_shape"),
                         show_boxes=bool(config_payload.get("show_boxes", True)),
                         jpeg_quality=int(config_payload.get("jpeg_quality", 80)),
+                        render_frames=bool(config_payload.get("render_frames", True)),
                     )
                     session = LiveSession(config)
                 except Exception as exc:

@@ -130,10 +130,22 @@ export interface LiveInferenceConfig {
   tracker?: string | null;
   solution?: string;
   solutionKwargs?: Record<string, unknown>;
-  region?: number[][] | null;
+  /** Region of interest as normalised 0..1 geometry. */
+  region?: number[][] | number[][][] | null;
   regionKind?: string | null;
+  /**
+   * Source `(height, width)`. Sent so the API can resolve a normalised region
+   * into the pixel geometry Ultralytics solutions expect.
+   */
+  frameShape?: [number, number] | null;
   showBoxes?: boolean;
   jpegQuality?: number;
+  /**
+   * Ask the API to skip encoding an annotated JPEG per frame. The camera loop
+   * draws its own overlay from the geometry, so leaving this on wastes a full
+   * JPEG encode plus a base64 copy on every frame.
+   */
+  renderFrames?: boolean;
   conf?: number;
   iou?: number;
   imgsz?: number;
@@ -196,8 +208,11 @@ export function useLiveInference(): UseLiveInferenceResult {
             solution_kwargs: config.solutionKwargs ?? {},
             region: config.region ?? null,
             region_kind: config.regionKind ?? null,
+            region_normalised: true,
+            frame_shape: config.frameShape ?? null,
             show_boxes: config.showBoxes ?? true,
             jpeg_quality: config.jpegQuality ?? 78,
+            render_frames: config.renderFrames ?? true,
             conf: config.conf,
             iou: config.iou,
             imgsz: config.imgsz,

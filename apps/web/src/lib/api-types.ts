@@ -401,6 +401,9 @@ export interface SessionHandle {
   solution_meta: SolutionMeta | Record<string, never>;
   model: string;
   names: Record<string, string>;
+  /** False when a requested ROI could not be resolved to source pixels. */
+  region_applied?: boolean;
+  region_note?: string | null;
 }
 
 export interface SessionStats {

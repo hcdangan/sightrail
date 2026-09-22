@@ -56,7 +56,9 @@ space (`xywhn`, `xyxyn`) so the client can render at any zoom without drift.
 | Persistent tracker state per session (stable IDs) | `core/live.py::FrameStream`, `LiveTracker` |
 | Webcam discovery | `GET /api/stream/cameras` |
 | Session statistics (frames, FPS, uptime, counters, rolling history) | `GET /api/stream/sessions/{id}/stats` |
-| Region of interest (line / polygon / multi-polygon) | `StreamConfig.region`, UI preview in Live Studio |
+| Region of interest (line / polygon / multi-polygon) | `StreamConfig.region`, **editable in the Studio sidebar** for every live mode |
+| Normalised ROI geometry (survives a resolution change) | `region_normalised`, `core/streaming.py::_region_to_pixels`, `lib/region.ts` |
+| Client-side overlay drawn from result geometry | `lib/results.ts::overlayBoxes`, `components/results/CanvasOverlay.tsx` |
 | Per-frame analytics timeline | `core/streaming.py::video_jobs_frames` |
 | Annotated MP4 output | job artifact, downloadable |
 

@@ -158,6 +158,11 @@ ignore = [
 "sightrail/api/deps.py" = ["BLE001", "S110"]
 "sightrail/api/media.py" = ["BLE001"]
 "sightrail/api/realtime.py" = ["BLE001"]
+# Opening a capture device to read its frame size is a best-effort probe: cv2
+# raises its own error type for an unreadable or busy source, and the caller
+# treats "unknown size" as "leave the region unresolved" rather than failing the
+# session. Only _probe_frame_shape catches broadly here.
+"sightrail/api/streams.py" = ["BLE001"]
 # A batch run must report a per-file failure and continue; the broad handler is
 # the whole point of the endpoint. TRY301 covers the "no result" guard inside
 # that per-item try block, which cannot be hoisted without losing the report.

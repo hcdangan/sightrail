@@ -13,6 +13,35 @@ from ..core.serialize import serialise_names
 from ..schemas.base import JobKind, JobSummary
 from ..schemas.requests import StreamStartRequest, TrackRequest, VideoAnalysisRequest
 
+
+def _probe_frame_shape(path: str | int) -> tuple[int, int] | None:
+    """``(height, width)`` of a video source, or ``None`` when it cannot be read.
+
+    Needed so a normalised (0..1) region can be resolved into the pixel geometry
+    Ultralytics solutions expect. A failure here is not fatal: the caller leaves
+    the region unresolved and reports that it was ignored, rather than applying
+    fractions as if they were pixels.
+    """
+    import cv2
+
+    capture = None
+    try:
+        capture = cv2.VideoCapture(path)
+        if not capture.isOpened():
+            return None
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    except Exception:
+        # cv2 raises its own error type for an unreadable source; this is a probe,
+        # so any failure simply means "size unknown".
+        return None
+    finally:
+        if capture is not None:
+            capture.release()
+
+    return (height, width) if height > 0 and width > 0 else None
+
+
 router = APIRouter(prefix="/stream", tags=["streaming"])
 
 #: Live sessions keyed by their id (process-wide; cleared on stop).
@@ -44,6 +73,10 @@ def open_session(request: StreamStartRequest) -> dict[str, Any]:
     source = resolve_to_path(request.source)
     # A webcam index is a valid source for a live session (unlike batch mode).
     session_source: str | int = source if isinstance(source, int) else str(source)
+    # Resolve the true source size so a normalised (0..1) ROI lands in the right
+    # place. This works for both a video file and a camera index, and it is more
+    # trustworthy than a size the browser reports.
+    frame_shape = _probe_frame_shape(session_source)
 
     config = streaming.StreamConfig(
         model_id=request.model,
@@ -58,6 +91,8 @@ def open_session(request: StreamStartRequest) -> dict[str, Any]:
         solution_kwargs=request.solution_kwargs,
         region=request.region,
         region_kind=request.region_kind,
+        region_normalised=request.region_normalised,
+        frame_shape=frame_shape,
         show_boxes=request.show_boxes,
         jpeg_quality=request.jpeg_quality,
     )
@@ -68,6 +103,12 @@ def open_session(request: StreamStartRequest) -> dict[str, Any]:
 
     _sessions[session.id] = session
     spec = streaming.SOLUTION_BY_ID.get(request.solution, {})
+    # A region was requested but could not be mapped into pixels. Say so rather
+    # than letting the UI imply an ROI is in force when the solution is running
+    # with its own internal default.
+    region_requested = bool(request.region) and bool(spec.get("needs_region"))
+    # Pixel-space geometry needs no resolution; normalised geometry needs a size.
+    region_applied = region_requested and (not request.region_normalised or frame_shape is not None)
     return {
         "session_id": session.id,
         "mjpeg_url": f"/api/stream/sessions/{session.id}/mjpeg",
@@ -77,6 +118,13 @@ def open_session(request: StreamStartRequest) -> dict[str, Any]:
         "solution_meta": spec,
         "model": str(getattr(session.model, "path", request.model)),
         "names": serialise_names(getattr(session.model, "names", None)),
+        "region_applied": region_applied,
+        "region_note": (
+            None
+            if region_applied or not region_requested
+            else "The source size could not be read, so the region of interest was ignored. "
+            "Use a video file, or draw the ROI after the stream starts."
+        ),
     }
 
 
@@ -227,6 +275,8 @@ def analyse_video(request: VideoAnalysisRequest) -> JobSummary:
         solution_kwargs=request.solution_kwargs,
         region=request.region,
         region_kind=request.region_kind,
+        region_normalised=request.region_normalised,
+        frame_shape=_probe_frame_shape(str(path)) if request.region_normalised else None,
     )
 
     def run(job: Any) -> dict[str, Any]:
