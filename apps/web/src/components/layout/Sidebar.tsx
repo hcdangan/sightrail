@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ChevronLeft, Cpu, Github, Menu, Zap } from 'lucide-react';
+import { ChevronLeft, Cpu, Menu, Scale, Zap } from 'lucide-react';
 
 import { NAV_GROUPS } from '@/lib/navigation';
 import { LICENSE_ID, SOURCE_URL } from '@/lib/licensing';
@@ -132,11 +132,14 @@ export function Sidebar({
                 rel="noreferrer"
                 // AGPL §13: a network user must be offered the Corresponding
                 // Source, so the license badge is the link that provides it.
+                // The icon is `Scale`, not a brand mark: lucide-react 1.x removed
+                // its brand icons, and the scales are the conventional license
+                // glyph anyway.
                 title={`${LICENSE_ID} — open the source code this deployment runs`}
                 className="rounded-full transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-brand-400/60 focus-visible:outline-none"
               >
                 <Badge tone="neutral" className="font-mono text-[9px]">
-                  <Github className="size-2.5" /> AGPL-3.0
+                  <Scale className="size-2.5" /> AGPL-3.0
                 </Badge>
               </a>
               <button
@@ -169,7 +172,7 @@ export function Sidebar({
             title={`${LICENSE_ID} — open the source code this deployment runs`}
             className="mx-auto mt-2 grid size-7 place-items-center rounded-lg text-slate-500 hover:bg-ink-700/60 hover:text-slate-200"
           >
-            <Github className="size-3.5" />
+            <Scale className="size-3.5" />
           </a>
         )}
       </div>
