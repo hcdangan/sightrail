@@ -247,6 +247,26 @@ npm run test:api -- -m integration
 Then sanity-check the running app: predict on a sample, open a Live Studio session,
 run a 3-epoch COCO8 training, validate it, export to ONNX.
 
+### Branching
+
+`main` is protected by a repository ruleset (`.github/rulesets/protect-main.json`,
+explained in `.github/rulesets/README.md`): no force pushes, no deletion, linear
+history, and a pull request whose required checks pass before it can merge.
+
+So the loop is: branch → push → open a PR → let CI run → squash-merge.
+
+```bash
+git switch -c fix/short-description
+# ... commit ...
+git push -u origin fix/short-description
+gh pr create --fill
+```
+
+The ruleset does **not** require an approving review, because there is currently
+one maintainer — the PR exists so the checks and the discussion are attached to
+the change. The three required checks are `CI complete` (the aggregate job from
+`ci.yml`), `License compliance` and `Secret scanning`.
+
 ## 8. Troubleshooting the dev environment
 
 | Symptom | Cause / fix |

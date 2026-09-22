@@ -58,6 +58,8 @@ implemented and tested:
 | **Dependency vulnerabilities** | `pip-audit` and `npm audit` on every push and weekly | `.github/workflows/security.yml` |
 | **Secret leakage** | gitleaks over the full history on every push | `.github/workflows/security.yml` |
 | **Unsafe code patterns** | bandit (medium+) and ruff's `S` rules | `.github/workflows/security.yml`, `apps/api/pyproject.toml` |
+| **Non-compliant dependency licenses** | `npm run license:report` exits non-zero on any AGPL-3.0-incompatible component | `.github/workflows/security.yml`, `scripts/license-report.mjs` |
+| **Force-push or deletion of `main`, or unreviewed pushes to it** | Repository ruleset: no force pushes, no deletion, linear history, pull request with resolved threads, and three required checks before merge | `.github/rulesets/protect-main.json` |
 
 ### Known limitations
 
