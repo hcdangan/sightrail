@@ -19,7 +19,7 @@ changed and why).**
 | Location | `C:\code\sightrail` |
 | Version | `1.3.0`, consistent across all four manifests + the CHANGELOG |
 | Git | branch `main`, 130 tracked files, pushed to `origin` (`https://github.com/hcdangan/sightrail`), in sync with `origin/main` |
-| Quality gates | `npm run verify` green: version check → typecheck (web + API) → lint (web + API) → build → 28 web tests → 148 backend tests; `npm run license:report` green |
+| Quality gates | `npm run verify` green: version check → typecheck (web + API) → lint (web + API) → build → 28 web tests → 151 backend tests; `npm run license:report` green |
 | Licensing | AGPL-3.0-or-later, declared in every manifest and enforced by `npm run license:report` (also a blocking job in the Security workflow). Details in `THIRD-PARTY-NOTICES.md`. |
 | Compute device | `.env` sets `SIGHTRAIL_DEVICE=cpu`; `cuda:0` falls back to CPU (no CUDA torch build); `hailo` reports `runtime-missing` |
 

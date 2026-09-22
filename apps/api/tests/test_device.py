@@ -7,6 +7,8 @@ none of the hardware.
 
 from __future__ import annotations
 
+import platform
+
 import pytest
 
 from sightrail.core import device as device_mod
@@ -223,14 +225,42 @@ def test_hailo_checkpoint_requires_the_runtime_first():
     assert "hailo-all" in (excinfo.value.hint or "")
 
 
-def test_hailo_export_is_validated_before_the_job_starts():
-    """Every applicable problem is reported in one pass, not one at a time."""
+@pytest.mark.parametrize(
+    ("system", "machine", "host_restriction_applies"),
+    [
+        ("Linux", "x86_64", False),
+        ("Linux", "aarch64", True),
+        ("Windows", "AMD64", True),
+        ("Darwin", "arm64", True),
+    ],
+)
+def test_hailo_export_reports_every_applicable_problem(monkeypatch, system, machine, host_restriction_applies):
+    """Every applicable problem is reported in one pass, not one at a time.
+
+    The host restriction is the subtle case: HEF compilation needs Linux x86_64,
+    so the problem is *absent* on the CI runner and *present* on a developer's
+    Windows box. Asserting it unconditionally - as this test first did - passes
+    locally and fails in CI. The platform is simulated for all four cases, so
+    both branches are covered no matter which host runs the suite.
+    """
+    monkeypatch.setattr(platform, "system", lambda: system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+
     with pytest.raises(HailoError) as excinfo:
         hailo.validate_export_request("hailo", {"task": "segment"})
     message = str(excinfo.value)
-    assert "x86_64" in message  # host restriction
+
+    # Unconditional: no calibration dataset was supplied, and a 'segment'
+    # checkpoint has no HEF exporter. Both apply on every platform.
     assert "calibration" in message  # missing dataset
     assert "segment" in message  # unsupported task
+
+    if host_restriction_applies:
+        assert "x86_64" in message  # host restriction
+    else:
+        # On Linux x86_64 the host is fine, so claiming otherwise would be a
+        # false blocker - which is exactly what the old assertion demanded.
+        assert "x86_64" not in message
 
 
 def test_non_hailo_export_formats_are_untouched():

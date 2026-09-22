@@ -30,7 +30,24 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
-* **The license is now stated and enforced consistently as AGPL-3.0-or-later.**
+* **CI failed on every run, from the first push.** Two unrelated causes, neither
+  of which reproduced locally:
+  * `apps/api/requirements-dev.txt` had drifted from
+    `[project.optional-dependencies].dev` in `pyproject.toml` and was missing
+    `mypy`, so the *API lint & types* job died with `No module named mypy`. It was
+    also missing `bandit` and `pip-audit`. The two lists are now identical, with a
+    comment recording why that matters — CI installs the requirements file, so a
+    tool declared only in the manifest is invisible to it.
+  * `test_hailo_export_is_validated_before_the_job_starts` asserted that the Hailo
+    export error always mentions the Linux x86_64 restriction. True on the
+    author's Windows machine, false on the Linux CI runner, where the host
+    restriction correctly does *not* apply and only the calibration-dataset and
+    unsupported-task problems are reported. The test is now parametrised over four
+    platforms — including a simulated Linux x86_64, the one case a Windows dev box
+    cannot otherwise reach — so both branches are covered everywhere, and it
+    asserts the absence of the host complaint rather than its presence on the
+    platform where it is wrong.
+* The license is now stated and enforced consistently as AGPL-3.0-or-later.
   `ultralytics`, `ultralytics-thop` and `ultralytics-platform` are AGPL-3.0 and
   are imported in-process by `core/`, so the combined work cannot be distributed
   under anything more permissive. This is a legal requirement, not a preference,
