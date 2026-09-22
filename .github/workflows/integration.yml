@@ -33,10 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45 # a wedged training run must not hold a runner for hours
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -48,7 +48,7 @@ jobs:
 
       - name: Cache model weights and datasets
         if: github.event_name != 'workflow_dispatch' || inputs.upload_models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             apps/api/storage/weights
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-artifacts
           path: |
