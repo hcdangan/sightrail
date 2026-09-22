@@ -107,7 +107,7 @@ def tasks() -> dict[str, Any]:
 
 @router.get("/trackers", summary="Tracking algorithms")
 def trackers() -> dict[str, Any]:
-    return {"trackers": models_meta.TRACKERS}
+    return {"trackers": models_meta.tracker_catalog()}
 
 
 @router.get("/{model_id:path}/info", summary="Checkpoint metadata")

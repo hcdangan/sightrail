@@ -61,12 +61,48 @@ pinned to it and `npm run version:check` fails the build if they disagree.
   are imported in-process by `core/`, so the combined work cannot be distributed
   under anything more permissive. This is a legal requirement, not a preference,
   and it is now declared by every manifest rather than all but one.
+* **The export-format count was reported as 22 in four places and 21 in two
+  others — the README disagreed with itself in a single file.** The engine
+  advertises 22 rows, but one of them (`-`) is PyTorch, the *source* format rather
+  than an export target, so `export_format_catalog()` correctly offers 21. The UI
+  badge, the Export page description, the dashboard tile and the Help tour all
+  said 22 — and the README headline had been changed to match them. The root
+  cause was deeper than the copy: `FORMAT_NOTES` carried the curated LiteRT entry
+  under `"tflite"` while the engine's argument — and therefore the catalog id — is
+  `"litert"`, so the lookup missed and that row silently fell back to the raw
+  engine string with an empty note. A second, duplicate `"litert"` key was being
+  shadowed by the first. Ruff's `F601` flags duplicate dictionary keys, but only
+  once the dead key is renamed into a collision; nothing flagged the key that
+  matched nothing. `test_export_format_notes_cover_exactly_the_catalog` now fails
+  on any `FORMAT_NOTES` key that matches no catalog id, and on any format row with
+  an empty label or note, so the next rename cannot go unnoticed.
 
 ### Planned
 
 * Authentication for non-localhost deployments (currently the reverse proxy is
   the intended boundary — see `SECURITY.md`).
 * Persisted job history, so restarting the API does not clear the job list.
+
+### Fixed
+
+* `FORMAT_NOTES` keyed the curated LiteRT entry as `"tflite"` while the engine
+  reports `"litert"`, so the format matrix rendered that row with the raw engine
+  label and no note. The entry is now keyed correctly and a duplicate `"litert"`
+  key — which had been silently shadowing it — is gone.
+* **The tracker reference panel badged the wrong tracker as the default.**
+  `TRACKERS` marked `tracktrack.yaml` with `recommended: True`, and the Studio
+  panel renders that flag as a literal **"default"** badge — but every Sightrail
+  entry point (`TrackRequest`, `StreamStartRequest`, `VideoAnalysisRequest`, the
+  live WebSocket config and both frontend stores) asks for **ByteTrack**. The
+  flag was Ultralytics' preference, not this application's: the installed engine
+  ships `tracker: tracktrack.yaml` in its own `cfg/default.yaml`, so the badge
+  was accurate about upstream and wrong about Sightrail. The default now lives in
+  one place (`core/models_meta.py::DEFAULT_TRACKER`, wired through the request
+  schemas) and `recommended` is *derived* from it by `tracker_catalog()`, so the
+  badge cannot disagree with the default actually applied. TrackTrack keeps its
+  entry and a corrected description. `test_the_recommended_tracker_is_the_default_the_schemas_use`
+  asserts exactly one recommended tracker, that it equals `DEFAULT_TRACKER`, and
+  that all three request schemas default to the same value.
 
 ## [1.3.0] - 2026-01-09
 

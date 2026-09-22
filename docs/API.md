@@ -136,7 +136,7 @@ URLs and the path to `weights/best.pt` when present.
 | `DELETE /api/models/registry?model=` | Evict one model, or the whole cache when `model` is omitted. |
 | `GET /api/models/formats` | Export format matrix: label, engine name, suffix, CPU/GPU support, accepted options, backend environment, deployment targets. |
 | `GET /api/models/tasks` | The five task families with their default checkpoint and output types. |
-| `GET /api/models/trackers` | The six bundled trackers with descriptions and prerequisites. |
+| `GET /api/models/trackers` | The six bundled trackers with descriptions and prerequisites. `recommended` marks Sightrail's default — **ByteTrack**, not Ultralytics' own `tracktrack.yaml`; see `core/models_meta.py::DEFAULT_TRACKER`. |
 | `GET /api/models/optimizers` | Optimizer choices for training. |
 | `GET /api/models/{model_id}/info` | Load a checkpoint and report task, class names, layers, parameters, gradients, GFLOPs and device. `model_id` may contain slashes (a path). |
 | `POST /api/models/download` | Fetch a catalog checkpoint into `storage/weights`. Body: `{"model": "yolo11n-seg.pt"}`. |

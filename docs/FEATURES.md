@@ -62,8 +62,11 @@ space (`xywhn`, `xyxyn`) so the client can render at any zoom without drift.
 
 ### Trackers exposed
 
-ByteTrack (default) · TrackTrack · BoT-SORT · OC-SORT · Deep OC-SORT ·
-FastTracker — listed with descriptions by `GET /api/models/trackers`.
+ByteTrack (Sightrail's default) · TrackTrack · BoT-SORT · OC-SORT · Deep OC-SORT ·
+FastTracker — listed with descriptions by `GET /api/models/trackers`. The default
+is deliberately ByteTrack and not Ultralytics' own `tracktrack.yaml`; the
+`recommended` flag that badges it in the UI is derived from
+`core/models_meta.py::DEFAULT_TRACKER`, so the two cannot disagree.
 
 ---
 

@@ -175,7 +175,7 @@ export function DashboardPage() {
                 to: '/export',
                 icon: Download,
                 label: 'Export',
-                detail: '22 deployment formats from ONNX to TensorRT',
+                detail: '21 deployment formats from ONNX to TensorRT',
                 accent: 'from-sky-500/20',
               },
               {

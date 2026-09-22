@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from sightrail.config import Settings
-from sightrail.core import catalog, jobs, serialize
+from sightrail.core import catalog, jobs, models_meta, serialize
 from sightrail.core.device import list_devices, resolve_device
 from sightrail.schemas.base import JobKind, JobProgress, JobStatus, TaskName
 
@@ -92,6 +92,86 @@ def test_catalog_grouping_and_defaults():
     assert catalog.default_model_for_task("unknown-task") == "yolo11n.pt"
     assert catalog.is_catalog_model("yolo11n.pt")
     assert not catalog.is_catalog_model("not-a-model.pt")
+
+
+# --------------------------------------------------------- export format table
+
+
+def test_export_format_notes_cover_exactly_the_catalog():
+    """Every selectable format must be keyed by the id the catalog reports.
+
+    This is the regression that shipped a format with no curated copy: the notes
+    dict was keyed ``tflite`` while the engine's argument — and therefore the
+    catalog id — is ``litert``, so ``FORMAT_NOTES.get`` missed and the row fell
+    back to the raw engine name with an empty note. Nothing raised; the label was
+    just quietly wrong. A key that matches nothing is therefore a test failure,
+    not dead weight.
+    """
+    rows = models_meta.export_format_catalog()
+    if not rows:  # pragma: no cover - the engine is optional
+        pytest.skip("Ultralytics is not importable, so there is no format table.")
+
+    ids = {row["id"] for row in rows}
+    assert len(ids) == len(rows), "duplicate export format ids"
+
+    # The UI renders label and note on every format card; empty ones are visible.
+    for row in rows:
+        assert row["label"], f"{row['id']} has no label"
+        assert row["note"], f"{row['id']} has no curated note"
+
+    unused = frozenset(models_meta.FORMAT_NOTES) - frozenset(ids)
+    assert not unused, f"FORMAT_NOTES keys match no catalog id: {sorted(unused)}"
+
+
+def test_export_format_catalog_excludes_the_source_format():
+    """PyTorch is the *source*, not an export target, so it must not be listed.
+
+    The UI prints ``formats.length`` as a badge and the README states the same
+    number, so an off-by-one here is user-visible documentation drift.
+    """
+    rows = models_meta.export_format_catalog()
+    if not rows:  # pragma: no cover - the engine is optional
+        pytest.skip("Ultralytics is not importable, so there is no format table.")
+
+    assert all(row["id"] != "-" for row in rows), "the PyTorch source row leaked into the catalog"
+    assert any(row["id"] == "onnx" for row in rows)
+    assert len(rows) >= 20, f"the format table shrank unexpectedly: {len(rows)} entries"
+
+
+# -------------------------------------------------------------------- trackers
+
+
+def test_the_recommended_tracker_is_the_default_the_schemas_use():
+    """The "default" badge must name the tracker the API actually defaults to.
+
+    Ultralytics' own default is ``tracktrack.yaml`` (its ``cfg/default.yaml``),
+    but Sightrail wires ByteTrack through every request schema. The badge was
+    hand-written on TrackTrack, so the Studio panel advertised a tracker the
+    application never selected. ``recommended`` is now derived from
+    ``DEFAULT_TRACKER``; this asserts the derivation still matches the schemas.
+    """
+    from sightrail.core.models_meta import DEFAULT_TRACKER, tracker_catalog
+    from sightrail.schemas.requests import StreamStartRequest, TrackRequest, VideoAnalysisRequest
+
+    catalog = tracker_catalog()
+    flagged = [entry["id"] for entry in catalog if entry.get("recommended")]
+
+    assert flagged == [DEFAULT_TRACKER], f"expected exactly one recommended tracker, got {flagged}"
+    assert len(catalog) == len(models_meta.TRACKERS), "tracker_catalog must not add or drop entries"
+
+    # Every entry keeps its curated copy; the panel renders both fields.
+    for entry in catalog:
+        assert entry["label"], f"{entry['id']} has no label"
+        assert entry["description"], f"{entry['id']} has no description"
+
+    # The advertised default must be the one each schema applies when the field
+    # is omitted. Adding a mode with a different default is a real change, not a
+    # copy tweak, so it should fail here rather than in the UI.
+    for schema in (TrackRequest, StreamStartRequest, VideoAnalysisRequest):
+        default = schema.model_fields["tracker"].default
+        assert default == DEFAULT_TRACKER, (
+            f"{schema.__name__} defaults to {default!r}, but the UI badges {DEFAULT_TRACKER!r} as the default"
+        )
 
 
 # ----------------------------------------------------------------- engine util

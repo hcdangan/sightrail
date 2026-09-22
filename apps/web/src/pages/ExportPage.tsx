@@ -171,7 +171,7 @@ export function ExportPage() {
       <PageHeader
         eyebrow="Mode 5 of 6 · Export"
         title="Deployment export"
-        description="Convert a checkpoint into any of the 22 formats Ultralytics supports — ONNX, TensorRT, OpenVINO, CoreML, TFLite, RKNN, Hailo and more — with per-format precision and optimisation options."
+        description="Convert a checkpoint into any of the 21 formats Ultralytics supports — ONNX, TensorRT, OpenVINO, CoreML, TFLite, RKNN, Hailo and more — with per-format precision and optimisation options."
         badges={[
           { label: `${formats?.formats.length ?? 0} formats`, tone: 'brand' },
           { label: `device: ${device}`, tone: device === 'cpu' ? 'neutral' : 'success' },

@@ -163,7 +163,7 @@ export const TOUR: TourStop[] = [
     path: '/export',
     label: 'Export',
     icon: Download,
-    what: 'Convert to any of the 22 deployment formats, from ONNX and OpenVINO to TensorRT and Hailo HEF.',
+    what: 'Convert to any of the 21 deployment formats, from ONNX and OpenVINO to TensorRT and Hailo HEF.',
   },
   {
     path: '/benchmark',

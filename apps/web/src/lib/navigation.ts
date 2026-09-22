@@ -120,7 +120,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/export',
         label: 'Export',
         icon: Download,
-        badge: '22 formats',
+        badge: '21 formats',
         description: 'Convert checkpoints to ONNX, TensorRT, OpenVINO, CoreML…',
         keywords: ['onnx', 'tensorrt', 'openvino', 'tflite', 'deploy'],
       },

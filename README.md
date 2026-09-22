@@ -4,7 +4,7 @@
 
 **A full-stack workbench that showcases every feature of [Ultralytics YOLO](https://docs.ultralytics.com/).**
 
-Six modes , five task families , sixteen built-in solutions , twenty-two export formats — behind a modern React + FastAPI UI.
+Six modes , five task families , sixteen built-in solutions , twenty-one export formats — behind a modern React + FastAPI UI.
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)

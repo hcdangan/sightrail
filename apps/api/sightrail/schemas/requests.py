@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from ..config import settings
+from ..core.models_meta import DEFAULT_TRACKER
 from .base import APIModel, TaskName
 
 
@@ -77,7 +78,7 @@ class BatchInferRequest(APIModel):
 class TrackRequest(APIModel):
     model: str = Field(default=settings.default_model)
     source: SourceSpec
-    tracker: str = "bytetrack.yaml"
+    tracker: str = DEFAULT_TRACKER
     conf: float = Field(default=0.25, ge=0.0, le=1.0)
     iou: float = Field(default=0.7, ge=0.0, le=1.0)
     imgsz: int = Field(default=640, ge=32, le=4096)
@@ -92,7 +93,7 @@ class StreamStartRequest(APIModel):
     model: str = Field(default=settings.default_model)
     task: TaskName | None = None
     source: SourceSpec
-    tracker: str | None = "bytetrack.yaml"
+    tracker: str | None = DEFAULT_TRACKER
     solution: str = "none"
     solution_kwargs: dict[str, Any] = Field(default_factory=dict)
     region: Any = None
@@ -110,7 +111,7 @@ class VideoAnalysisRequest(APIModel):
     model: str = Field(default=settings.default_model)
     task: TaskName | None = None
     source: SourceSpec
-    tracker: str | None = "bytetrack.yaml"
+    tracker: str | None = DEFAULT_TRACKER
     solution: str = "none"
     solution_kwargs: dict[str, Any] = Field(default_factory=dict)
     region: Any = None
