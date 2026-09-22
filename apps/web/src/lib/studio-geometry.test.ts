@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ResultPayload } from './api-types';
-import { clampRegion, normaliseRegion } from './region';
+import { clampRegion, normaliseRegion, type NormRegion } from './region';
 import { overlayBoxes } from './results';
 
 function resultWithBox(originalShape: [number, number], xyxy: number[]): ResultPayload {
@@ -129,8 +129,16 @@ describe('clampRegion', () => {
   });
 
   it('does not mutate its input', () => {
-    const input = [[[0.5, 0.5]]];
+    const input: NormRegion = [
+      [
+        [0.5, 0.5],
+      ],
+    ];
     clampRegion(input);
-    expect(input).toEqual([[[0.5, 0.5]]]);
+    expect(input).toEqual([
+      [
+        [0.5, 0.5],
+      ],
+    ]);
   });
 });

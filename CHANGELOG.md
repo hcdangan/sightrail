@@ -39,6 +39,44 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **Live webcam inference never sent a single frame to the API.** The client
+  camera loop captured frames correctly — `useCamera` was called ~40 times a
+  second and produced a valid JPEG data URL each time — but `useLiveInference.send`
+  dropped every one of them, so the API was never asked to infer anything and the
+  overlay had nothing to draw.
+
+  Two defects compounded:
+
+  * `send` gated on a `measuringRef` that was mirrored from React state by a
+    `useEffect`. The rAF loop could call `send` before that effect ran, so the
+    flag was still `false`. A flag on the data path must not depend on effect
+    timing: the gate is now a ref the caller sets **synchronously**, in the same
+    click that starts the loop (`live.setActive`). The loop also no longer depends
+    on the hook's return object identity — `live` is a fresh object every render,
+    which rebuilt the loop on every frame.
+  * `ClientCameraView` declared its own `const [measuring, setMeasuring] =
+    useState(false)`, which **shadowed** the identically named setter from the
+    hook. The component's state flipped and the button read "Pause inference"
+    while the hook's gate stayed closed — a silent, total failure behind a UI that
+    looked correct. `measuring` and its setter now live in exactly one place.
+
+  `StudioPage.test.tsx` reproduces it: it drives the real component against a fake
+  socket and asserts frames actually leave the browser. The test stubs
+  `requestAnimationFrame` **asynchronously**, because the bug only appears in the
+  browser's ordering, where rAF fires after effects have committed — a synchronous
+  stub hides it entirely.
+
+* **The webcam overlay drew detections into nothing.** `useCamera`'s canvas was
+  styled `absolute inset-0 h-full w-full` while the hook sets its `width`/`height`
+  attributes to the captured frame. CSS won, so one canvas served as both the
+  capture buffer and the overlay surface, and its intrinsic backing store was
+  zeroed. The capture canvas is now hidden and a separate overlay canvas draws the
+  geometry, scaled from the analysed frame (`result.original_shape`) to the
+  media's rendered size (`lib/results.ts::overlayBoxes`). The server-rendered JPEG
+  that was fetched every frame and displayed at `opacity-0` is no longer requested
+  (`render_frames: false`), removing a full JPEG encode and a base64 copy per
+  frame from the loop.
+
 * **CI failed on every run, from the first push.** Two unrelated causes, neither
   of which reproduced locally:
   * `apps/api/requirements-dev.txt` had drifted from

@@ -14,8 +14,11 @@
  * pixels.
  */
 
-/** A polygon/line as `[x, y]` pairs in 0..1 space. */
-export type NormPoints = number[][];
+/** One `[x, y]` coordinate pair in 0..1 space. */
+export type NormPoint = [number, number];
+
+/** A polygon or line as a list of coordinate pairs. */
+export type NormPoints = NormPoint[];
 
 /** One line (`[[x, y], [x, y]]`) or many polygons. */
 export type NormRegion = NormPoints[];
@@ -27,7 +30,7 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 /** Deep-copies a region, clamping every coordinate into 0..1. */
 export function clampRegion(region: NormRegion): NormRegion {
-  return region.map((polygon) => polygon.map(([x, y]) => [clamp01(x), clamp01(y)]));
+  return region.map((polygon) => polygon.map(([x, y]) => [clamp01(x), clamp01(y)] as NormPoint));
 }
 
 /**
@@ -50,6 +53,6 @@ export function normaliseRegion(raw: unknown): NormRegion {
 
   return polygons
     .filter((polygon) => polygon.length >= 2)
-    .map((polygon) => polygon.map(([x, y]) => [clamp01(Number(x) / scaleX), clamp01(Number(y) / scaleY)]));
+    .map((polygon) => polygon.map(([x, y]) => [clamp01(Number(x) / scaleX), clamp01(Number(y) / scaleY)] as NormPoint));
 }
 

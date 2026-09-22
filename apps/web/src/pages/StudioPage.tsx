@@ -262,7 +262,8 @@ export function StudioPage() {
 
 /* ------------------------------------------------------------------ client */
 
-function ClientCameraView({
+/** Exported for the behavioural test in `StudioPage.test.tsx`. */
+export function ClientCameraView({
   model,
   tracker,
   solution,
@@ -281,22 +282,27 @@ function ClientCameraView({
 }) {
   const { videoRef, canvasRef, status, error, start, stop, captureFrame, devices, selectedDeviceId, selectDevice } = useCamera();
   const live = useLiveInference();
-  const [measuring, setMeasuring] = useState(false);
+  // `live.measuring` drives the labels and the LIVE badge; `live.setActive` opens
+  // the frame gate synchronously, in the same click that starts the rAF loop.
+  const { measuring, setActive } = live;
   const [mediaSize, setMediaSize] = useState<{ width: number; height: number } | null>(null);
   const settings = usePreferences((state) => state.overlay);
 
   // Push frames on a rAF loop while measuring; the hook applies back-pressure.
+  // `send` is stable and `live` is not, so destructuring avoids depending on the
+  // hook's return object identity — that tore the loop down on every frame.
+  const { send: sendFrame } = live;
   useEffect(() => {
     if (!measuring) return;
     let frameHandle = 0;
     const tick = () => {
       const dataUrl = captureFrame();
-      if (dataUrl) live.send(dataUrl);
+      if (dataUrl) sendFrame(dataUrl);
       frameHandle = requestAnimationFrame(tick);
     };
     frameHandle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameHandle);
-  }, [measuring, captureFrame, live]);
+  }, [measuring, captureFrame, sendFrame]);
 
   // The boxes come back in the analysed frame's pixel space, so they have to be
   // scaled to whatever size the video element actually renders at.
@@ -315,7 +321,7 @@ function ClientCameraView({
   }, [status, videoRef]);
 
   useEffect(() => {
-    setMeasuring(false);
+    setActive(false);
   }, [status]);
 
   const result = live.last?.result ?? null;
@@ -343,7 +349,7 @@ function ClientCameraView({
                   variant="danger"
                   icon={<CircleDot className="size-3.5" />}
                   onClick={() => {
-                    setMeasuring(false);
+                    setActive(false);
                     live.disconnect();
                     stop();
                   }}
@@ -373,9 +379,9 @@ function ClientCameraView({
                       regionKind,
                       frameShape: mediaSize ? [mediaSize.height, mediaSize.width] : null,
                     });
-                    setMeasuring(true);
+                    setActive(true);
                   } else {
-                    setMeasuring(false);
+                    setActive(false);
                   }
                 }}
               >

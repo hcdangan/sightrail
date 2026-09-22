@@ -162,8 +162,19 @@ export interface UseLiveInferenceResult {
   send: (dataUrl: string) => void;
   reset: () => void;
   disconnect: () => void;
+  /**
+   * Open or close the frame gate.
+   *
+   * `send` reads this from a ref, deliberately. An earlier version mirrored a
+   * React state value into a ref from a `useEffect`; the rAF loop could call
+   * `send` before that effect ran, so every frame was dropped and no inference
+   * ever reached the API. A flag on the data path must not depend on effect
+   * timing — the caller sets it synchronously, in the same click that starts the
+   * loop.
+   */
+  setActive: (value: boolean) => void;
+  /** Mirrors the gate, for labels and the LIVE badge. */
   measuring: boolean;
-  setMeasuring: (value: boolean) => void;
 }
 
 /**
@@ -177,15 +188,18 @@ export function useLiveInference(): UseLiveInferenceResult {
   const [names, setNames] = useState<Record<string, string>>({});
   const [last, setLast] = useState<LiveFrameResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [measuring, setMeasuring] = useState(false);
+  const [measuring, setMeasuringState] = useState(false);
   const [latencyHistory, setLatencyHistory] = useState<UseLiveInferenceResult['latencyHistory']>([]);
-  const measuringRef = useRef(false);
   /** Back-pressure flag: skip frames while a response is still in flight. */
   const inflight = useRef(false);
+  /** Frame gate, updated synchronously by the caller. */
+  const gate = useRef(false);
 
-  useEffect(() => {
-    measuringRef.current = measuring;
-  }, [measuring]);
+  const setActive = useCallback((value: boolean) => {
+    gate.current = value;
+    setMeasuringState(value);
+    if (!value) inflight.current = false;
+  }, []);
 
   const connect = useCallback((config: LiveInferenceConfig) => {
     socketRef.current?.close();
@@ -265,7 +279,7 @@ export function useLiveInference(): UseLiveInferenceResult {
 
   const send = useCallback((dataUrl: string) => {
     const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !measuringRef.current) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !gate.current) return;
     if (inflight.current) return;
     inflight.current = true;
     socket.send(JSON.stringify({ type: 'frame', data: dataUrl }));
@@ -276,10 +290,11 @@ export function useLiveInference(): UseLiveInferenceResult {
     socketRef.current?.send(JSON.stringify({ type: 'stop' }));
     socketRef.current?.close();
     socketRef.current = null;
+    setActive(false);
     setReady(false);
-  }, []);
+  }, [setActive]);
 
   useEffect(() => () => socketRef.current?.close(), []);
 
-  return { ready, names, last, error, latencyHistory, connect, send, reset, disconnect, measuring, setMeasuring };
+  return { ready, names, last, error, latencyHistory, connect, send, reset, disconnect, setActive, measuring };
 }
