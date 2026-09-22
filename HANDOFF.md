@@ -18,7 +18,8 @@ changed and why).**
 | --- | --- |
 | Location | `C:\code\sightrail` |
 | Version | `1.3.0`, consistent across all four manifests + the CHANGELOG |
-| Git | branch `main`, 130 tracked files, pushed to `origin` (`https://github.com/hcdangan/sightrail`), in sync with `origin/main` |
+| Git | branch `main`, 136 tracked files, pushed to `origin` (`https://github.com/hcdangan/sightrail`) |
+| Branch protection | `Protect main` ruleset (id `23825336`): no force push, no deletion, linear history, PR required with 0 approvals, required checks `CI complete` / `License compliance` / `Secret scanning`. Definition and rationale in `.github/rulesets/`. `hcdangan` is a bypass actor. |
 | Quality gates | `npm run verify` green: version check → typecheck (web + API) → lint (web + API) → build → 28 web tests → 151 backend tests; `npm run license:report` green |
 | Licensing | AGPL-3.0-or-later, declared in every manifest and enforced by `npm run license:report` (also a blocking job in the Security workflow). Details in `THIRD-PARTY-NOTICES.md`. |
 | Compute device | `.env` sets `SIGHTRAIL_DEVICE=cpu`; `cuda:0` falls back to CPU (no CUDA torch build); `hailo` reports `runtime-missing` |

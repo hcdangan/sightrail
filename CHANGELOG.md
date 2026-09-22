@@ -27,6 +27,15 @@ pinned to it and `npm run version:check` fails the build if they disagree.
   missing one.
 * A **Licensing** section in `docs/DEVELOPMENT.md`, and a `License` section in the
   README that states the obligations rather than only the license name.
+* **A `Protect main` repository ruleset**, committed as code in
+  `.github/rulesets/protect-main.json` with the reasoning in
+  `.github/rulesets/README.md`. It blocks force pushes and deletion of `main`,
+  requires linear history, routes every change through a pull request with
+  resolved review threads, and requires `CI complete`, `License compliance` and
+  `Secret scanning` to pass before a merge. It requires **no approving review**,
+  since there is one maintainer, and the maintainer is a bypass actor so a hotfix
+  is always possible. A **Branching** section in `docs/DEVELOPMENT.md` documents
+  the resulting loop.
 
 ### Fixed
 
