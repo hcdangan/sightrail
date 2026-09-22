@@ -1,0 +1,55 @@
+# gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+#
+# Extends the default ruleset (which covers AWS/GCP/Azure keys, private keys,
+# JWTs, common provider tokens) and only adds what this project actually needs:
+# knowledge of the paths that legitimately contain placeholder-looking values.
+
+title = "Sightrail"
+
+[extend]
+# Pin the upstream ruleset version so a new upstream rule cannot silently turn
+# this job red on an unrelated PR.
+useDefault = true
+
+[allowlist]
+description = "Paths and values that are documentation, not credentials"
+
+paths = [
+  # Documented configuration templates: keys are placeholders by definition.
+  '''\.env\.example$''',
+  # Test fixtures and lockfiles contain high-entropy strings that are not secrets.
+  '''package-lock\.json$''',
+  '''apps/api/tests/.*''',
+  # Third-party code we do not own.
+  '''node_modules/.*''',
+  '''\.venv/.*''',
+]
+
+# Values that appear in docs and examples and would otherwise look like tokens.
+regexes = [
+  '''(?i)(your|my|example|placeholder|changeme|dummy|sample)[-_]?(api[-_]?key|token|secret|password)''',
+  '''hailo_platform''',
+  '''pip install hailo_platform''',
+]
+
+# Commits that are intentionally ignored (none by default). Prefer fixing the
+# finding over listing a commit here.
+commits = []
+
+[[rules]]
+# The project has no auth layer, so a real credential appearing in the API
+# source is much more likely to be a mistake than an intended secret.
+id = "generic-secret-assignment"
+description = "Hard-coded secret assigned in Python/TypeScript source"
+regex = '''(?i)(secret|password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret)\s*[:=]\s*["'][^"']{8,}["']'''
+path = '''\.(py|ts|tsx|js|jsx)$'''
+tags = ["key", "secret"]
+
+[rules.allowlist]
+regexes = [
+  '''(?i)["'](your|my|example|placeholder|changeme|dummy|sample|test|fake|not-really|insecure)''',
+  '''os\.environ''',
+  '''getenv''',
+  '''settings\.''',
+]

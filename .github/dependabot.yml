@@ -1,0 +1,87 @@
+# Dependabot configuration
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# One pull request per ecosystem per week, grouped so a routine bump does not
+# produce a dozen separate reviews. Major upgrades of the ML stack are called out
+# explicitly because they change inference behaviour and need the integration
+# suite before merging.
+
+version: 2
+
+updates:
+  # --- Python API -----------------------------------------------------------
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    commit-message:
+      prefix: "chore(deps-api)"
+    labels: ["dependencies", "api"]
+    groups:
+      python-dev:
+        patterns: ["pytest*", "ruff", "mypy", "bandit", "pip-audit", "httpx"]
+        update-types: ["minor", "patch"]
+      python-runtime:
+        patterns: ["fastapi", "uvicorn*", "pydantic*", "python-multipart", "aiofiles"]
+        update-types: ["minor", "patch"]
+      python-imaging:
+        patterns: ["opencv-python*", "Pillow", "numpy", "psutil", "PyYAML"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # torch, torchvision and ultralytics ship together and change numerics.
+      # Bump them deliberately, with the integration workflow green.
+      - dependency-name: torch
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: torchvision
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: ultralytics
+        update-types: ["version-update:semver-major"]
+
+  # --- JavaScript / TypeScript ---------------------------------------------
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps-web)"
+    labels: ["dependencies", "web"]
+    groups:
+      # React and its types must move together or the build breaks.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "react-router-dom"]
+      tooling:
+        patterns: ["vite", "@vitejs/*", "typescript*", "eslint*", "vitest", "jsdom", "@testing-library/*", "tailwindcss", "@tailwindcss/*"]
+        update-types: ["minor", "patch"]
+      runtime:
+        patterns: ["@tanstack/*", "zustand", "recharts", "lucide-react", "clsx", "tailwind-merge", "class-variance-authority"]
+        update-types: ["minor", "patch"]
+
+  # --- GitHub Actions -------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    commit-message:
+      prefix: "chore(ci)"
+    labels: ["dependencies", "ci"]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # --- Docker (enabled when a Dockerfile is added) --------------------------
+  # - package-ecosystem: docker
+  #   directory: /
+  #   schedule:
+  #     interval: weekly

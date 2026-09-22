@@ -1,0 +1,159 @@
+name: CI
+
+# Lint, type-check, test and build. This is the gate every pull request must
+# pass, so it stays fast: no model weights, no GPU, no network downloads.
+# Engine integration tests live in a separate, opt-in workflow (`integration.yml`).
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref: cheaper and less noisy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  # Keep tool output stable and colour-free in CI logs.
+  NO_COLOR: "1"
+  FORCE_COLOR: "0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: lint, format check, type check
+  # ---------------------------------------------------------------------------
+  api-quality:
+    name: API lint & types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Create environment
+        working-directory: apps/api
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }} .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+      - name: Ruff format check
+        working-directory: apps/api
+        run: .venv/bin/python -m ruff format --check --diff sightrail tests
+
+      - name: Ruff lint
+        working-directory: apps/api
+        run: .venv/bin/python -m ruff check --output-format=github sightrail tests
+
+      - name: mypy
+        working-directory: apps/api
+        run: .venv/bin/python -m mypy
+
+  # ---------------------------------------------------------------------------
+  # Backend: unit + HTTP contract tests, on every supported Python
+  # ---------------------------------------------------------------------------
+  api-test:
+    name: API tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Create environment
+        working-directory: apps/api
+        run: |
+          uv venv --python ${{ matrix.python }} .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+      - name: Run unit and contract tests
+        working-directory: apps/api
+        run: .venv/bin/python -m pytest -m "not integration"
+
+      - name: Collect coverage
+        if: matrix.python == env.PYTHON_VERSION
+        working-directory: apps/api
+        run: |
+          uv pip install --python .venv/bin/python pytest-cov
+          .venv/bin/python -m pytest -m "not integration" \
+            --cov=sightrail --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        if: matrix.python == env.PYTHON_VERSION
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: apps/api/coverage.xml
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Frontend: lint, type check, tests, production build
+  # ---------------------------------------------------------------------------
+  web:
+    name: Web lint, test & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test:web
+
+      - name: Production build
+        run: npm run build
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Everything green: the single required status check for branch protection
+  # ---------------------------------------------------------------------------
+  ci-complete:
+    name: CI complete
+    if: always()
+    needs: [api-quality, api-test, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any dependency failed
+        run: |
+          echo "api-quality: ${{ needs.api-quality.result }}"
+          echo "api-test:    ${{ needs.api-test.result }}"
+          echo "web:         ${{ needs.web.result }}"
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::One or more CI jobs failed."
+            exit 1
+          fi

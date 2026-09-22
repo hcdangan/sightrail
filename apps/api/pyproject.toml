@@ -1,0 +1,237 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sightrail"
+version = "1.3.0"
+description = "Sightrail - a full-stack workbench for every Ultralytics YOLO mode and task."
+readme = "README.md"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.10"
+keywords = ["ultralytics", "yolo", "object-detection", "fastapi", "computer-vision"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+# Runtime dependencies are pinned in requirements.txt (kept as the single source
+# of truth because the install flow is driven by `uv pip install -r`). This list
+# mirrors it for tooling that reads metadata (bandit, pip-audit, IDEs).
+dependencies = [
+  "ultralytics>=8.3.0",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "python-multipart>=0.0.12",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "opencv-python-headless>=4.10.0",
+  "numpy>=1.26.0",
+  "Pillow>=10.4.0",
+  "aiofiles>=24.1.0",
+  "psutil>=6.0.0",
+  "PyYAML>=6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "httpx>=0.27.0",
+  "ruff>=0.7.0",
+  "mypy>=1.11.0",
+  "bandit>=1.7.10",
+  "pip-audit>=2.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/OWNER/sightrail"
+Documentation = "https://github.com/OWNER/sightrail/tree/main/docs"
+Issues = "https://github.com/OWNER/sightrail/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sightrail"]
+
+# ---------------------------------------------------------------------------
+# Ruff - linter and formatter
+# ---------------------------------------------------------------------------
+# Rule families are selected explicitly so the intent of each check is visible.
+# `ruff format` is the formatter; black/isort are intentionally not used because
+# ruff implements the same rules (see docs/DEVELOPMENT.md).
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["storage", ".venv", "runs", "datasets"]
+
+[tool.ruff.lint]
+select = [
+  "F",      # pyflakes: undefined names, unused imports
+  "E",      # pycodestyle errors
+  "W",      # pycodestyle warnings
+  "I",      # isort: import ordering
+  "UP",     # pyupgrade: modern syntax
+  "B",      # flake8-bugbear: likely bugs
+  "C4",     # flake8-comprehensions
+  "SIM",    # flake8-simplify
+  "PTH",    # flake8-use-pathlib
+  "RET",    # flake8-return
+  "ARG",    # unused arguments
+  "T20",    # flake8-print: no stray prints
+  "RUF",    # ruff-specific
+  "S",      # flake8-bandit: security
+  "BLE",    # blind except
+  "TRY",    # exception anti-patterns
+  "DTZ",    # naive datetimes
+  "ASYNC",  # async pitfalls
+  "LOG",    # logging pitfalls
+  "G",      # logging format
+  "TID",    # tidy imports
+  "PGH",    # pygrep hooks
+  "PT",     # pytest style
+]
+
+ignore = [
+  # The engine is a facade over third-party objects whose types are unstable
+  # across Ultralytics releases; strict typing there produces noise, not safety.
+  "ANN",
+  # Docstring rules are enforced by review, not by a linter, in this codebase.
+  "D",
+  # `Any` is deliberate at the Ultralytics boundary (see docs/ARCHITECTURE.md).
+  "PGH003",
+  # FastAPI's Depends/File/Query in defaults is the documented framework idiom.
+  "B008",
+  # Long argument lists mirror the Ultralytics config surface 1:1.
+  "PLR0913",
+  # Intra-package relative imports (`from ..core import engine`) are intentional:
+  # they keep the package relocatable and make the layer clear at the call site.
+  "TID252",
+  # Exception messages here are user-facing configuration guidance ("Hailo needs
+  # HailoRT"), not programmatic discriminators - custom classes would add
+  # indirection without adding information. Documented as a known trade-off in
+  # docs/DEVELOPMENT.md.
+  "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately use long functions, broad asserts and hard-coded values.
+"tests/**" = [
+  "S101",     # assert is the pytest idiom
+  "ARG001",   # fixtures are often requested for their side effects
+  "ARG002",
+  "PT011",    # pytest.raises without match= is fine for status-only checks
+  "PT018",    # composite assertions keep a test readable as one statement
+  "SLF001",   # tests may reach into internals deliberately
+]
+# ---------------------------------------------------------------------------
+# Deliberate blind excepts
+# ---------------------------------------------------------------------------
+# These modules probe for OPTIONAL hardware and libraries, and read third-party
+# objects whose failure modes are open-ended and vary by version: HailoRT, the
+# Hailo Dataflow Compiler, CUDA/MPS, psutil, per-driver GPU counters, and
+# Ultralytics/pandas result containers. Catching narrowly there is not possible -
+# a missing device and a malformed driver response surface as different exception
+# types on every platform.
+#
+# The rule is suppressed per file rather than per line because a per-line `noqa`
+# drifts as soon as the formatter runs. Every handler in these files follows the
+# same contract: it either returns a safe fallback (False / None / {}), logs the
+# failure, or reports it to the caller. Nothing in the request path is silently
+# swallowed - see SECURITY.md and docs/ARCHITECTURE.md.
+"sightrail/core/device.py" = ["BLE001", "S110", "S112"]
+"sightrail/core/hailo.py" = ["BLE001"]
+"sightrail/core/datasets.py" = ["BLE001"]
+"sightrail/core/metrics.py" = ["BLE001", "S110"]
+"sightrail/core/serialize.py" = ["BLE001"]
+"sightrail/core/streaming.py" = ["BLE001", "S112"]
+"sightrail/core/annotate.py" = ["BLE001"]
+"sightrail/core/engine.py" = ["BLE001"]
+"sightrail/core/models_meta.py" = ["BLE001"]
+"sightrail/core/catalog.py" = ["BLE001"]
+"sightrail/api/deps.py" = ["BLE001", "S110"]
+"sightrail/api/media.py" = ["BLE001"]
+"sightrail/api/realtime.py" = ["BLE001"]
+# A batch run must report a per-file failure and continue; the broad handler is
+# the whole point of the endpoint. TRY301 covers the "no result" guard inside
+# that per-item try block, which cannot be hoisted without losing the report.
+"sightrail/api/inference.py" = ["BLE001", "TRY301"]
+"sightrail/core/jobs.py" = ["BLE001"]
+"sightrail/core/live.py" = ["BLE001"]
+"sightrail/services/runners.py" = ["BLE001"]
+"sightrail/main.py" = ["BLE001", "LOG004"]
+# The CI helper script is executed as a script.
+"scripts/*.py" = ["T201"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.ruff.lint.isort]
+known-first-party = ["sightrail"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# mypy - static type checking
+# ---------------------------------------------------------------------------
+# Deliberately pragmatic: the Ultralytics/torch boundary is untyped, so this
+# catches mistakes in *our* code without demanding stubs for the ML stack.
+[tool.mypy]
+# The project runs on 3.10+, but numpy's bundled stubs use 3.12-only syntax, so
+# mypy has to parse them at 3.12 or it cannot get past the first import. This
+# affects static analysis only: the code stays 3.10-compatible and CI runs the
+# test suite on 3.10, 3.11 and 3.12.
+python_version = "3.12"
+files = ["sightrail"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+# `# type: ignore` comments here document real boundaries at the untyped
+# torch/ultralytics/OpenCV edge. Whether mypy still considers each one necessary
+# depends on the installed stub versions, so it is not treated as an error: CI
+# would otherwise break on a dependency bump with no code change.
+warn_unused_ignores = false
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+# Third-party ML libraries ship no type information, and some (numpy) ship stubs
+# that require a newer Python than the project targets. `skip` means mypy checks
+# our code without parsing their annotations.
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# Third-party packages that have no stubs (or whose stubs need a newer Python).
+# `ignore_missing_imports` is already global; this list documents *which*
+# packages that matters for, and keeps `warn_unused_configs` quiet.
+module = ["ultralytics.*", "cv2.*", "psutil.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# bandit - security linting (CI runs this separately and via ruff's `S` rules)
+# ---------------------------------------------------------------------------
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "storage"]
+# B101 assert_used: tests are excluded above; assertions in the app are avoided.
+skips = ["B101"]
+
+[tool.bandit.assert_used]
+skips = ["*/tests/*", "*/test_*.py"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --durations=10"
+markers = ["integration: requires the ultralytics engine and downloads model weights"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning", "ignore::UserWarning"]

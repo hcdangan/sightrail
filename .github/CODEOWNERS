@@ -1,0 +1,32 @@
+# CODEOWNERS
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Replace the placeholder with a real team or user before enabling required
+# reviews. A CODEOWNERS entry that nobody can satisfy blocks every pull request,
+# which is worse than having none.
+
+# Default owner for everything not matched below.
+*                       @OWNER
+
+# --- Application code -------------------------------------------------------
+/apps/api/              @OWNER
+/apps/web/              @OWNER
+
+# --- Infrastructure and security-critical paths -----------------------------
+/.github/               @OWNER
+/.github/workflows/     @OWNER
+/.gitleaks.toml         @OWNER
+/SECURITY.md            @OWNER
+/.env.example           @OWNER
+
+# --- API surface: changing these is a breaking change for the UI -------------
+/apps/api/sightrail/schemas/   @OWNER
+/apps/api/sightrail/api/       @OWNER
+/apps/web/src/lib/api-types.ts          @OWNER
+/apps/web/src/lib/api.ts                @OWNER
+/docs/API.md                            @OWNER
+
+# --- Documentation ----------------------------------------------------------
+/docs/                  @OWNER
+/README.md              @OWNER
+/CHANGELOG.md           @OWNER

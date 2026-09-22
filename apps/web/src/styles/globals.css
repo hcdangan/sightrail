@@ -1,0 +1,224 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Sightrail - design tokens
+   A dark-first, high-contrast theme. Semantic tokens are declared as CSS
+   variables so charts (which need literal colours) and utilities stay in sync.
+--------------------------------------------------------------------------- */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  /* Surfaces */
+  --color-ink-950: #05070f;
+  --color-ink-900: #080c1a;
+  --color-ink-850: #0b1020;
+  --color-ink-800: #101731;
+  --color-ink-700: #16203f;
+  --color-ink-600: #1f2b52;
+  --color-ink-500: #2b3a68;
+
+  /* Brand accent */
+  --color-brand-50: #ecfeff;
+  --color-brand-200: #a5f3fc;
+  --color-brand-300: #67e8f9;
+  --color-brand-400: #22d3ee;
+  --color-brand-500: #06b6d4;
+  --color-brand-600: #0891b2;
+
+  --color-violet-glow: #818cf8;
+
+  /* Status */
+  --color-success-400: #4ade80;
+  --color-success-500: #22c55e;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-danger-400: #f87171;
+  --color-danger-500: #ef4444;
+  --color-info-400: #60a5fa;
+
+  --radius-panel: 0.875rem;
+
+  --animate-fade-in: fade-in 220ms ease-out both;
+  --animate-slide-up: slide-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-slow: pulse-slow 2.4s ease-in-out infinite;
+  --animate-scan: scan 2.4s linear infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(34, 211, 238, 0.1), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(99, 102, 241, 0.12), transparent 55%),
+      var(--color-ink-950);
+    color: #e6ebf7;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-500);
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Component utilities
+--------------------------------------------------------------------------- */
+@utility panel {
+  background: linear-gradient(180deg, rgba(16, 23, 49, 0.92), rgba(8, 12, 26, 0.92));
+  border: 1px solid rgba(43, 58, 104, 0.6);
+  border-radius: var(--radius-panel);
+  backdrop-filter: blur(8px);
+}
+
+@utility panel-hover {
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+@utility glow-ring {
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.25),
+    0 0 28px -6px rgba(34, 211, 238, 0.35);
+}
+
+@utility grid-noise {
+  background-image:
+    linear-gradient(rgba(43, 58, 104, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 58, 104, 0.22) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@utility text-gradient {
+  background: linear-gradient(92deg, #67e8f9 0%, #a5b4fc 60%, #f0abfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility scroll-shadow {
+  background-image: linear-gradient(to bottom, rgba(5, 7, 15, 0.9), rgba(5, 7, 15, 0));
+}
+
+/* Range inputs styled consistently across browsers */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-ink-600);
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--color-brand-400);
+  border: 2px solid #05070f;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.6);
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #05070f;
+  border-radius: 999px;
+  background: var(--color-brand-400);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--color-brand-500);
+}

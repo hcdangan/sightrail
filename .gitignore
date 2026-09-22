@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# Sightrail - repository root ignore rules
+# ---------------------------------------------------------------------------
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Virtual envs ---------------------------------------------------------
+.venv/
+venv/
+env/
+
+# --- Node -----------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# --- Runtime artifacts (weights, runs, uploads, outputs) ------------------
+storage/
+runs/
+weights/
+*.pt
+*.onnx
+*.engine
+*.torchscript
+*.mlpackage
+*.tflite
+*.hef
+*.openvino*
+datasets/
+!apps/api/sightrail/datasets/**
+
+# --- Tooling / editor -----------------------------------------------------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# --- Logs / env -----------------------------------------------------------
+*.log
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Guard against accidental tsc emit inside src --------------------------
+apps/web/src/**/*.js
+apps/web/src/**/*.d.ts
+
+
+# --- Stray build metadata ---------------------------------------------------
+*.tsbuildinfo
+apps/web/vite.config.js
+

@@ -1,0 +1,74 @@
+name: Integration tests
+
+# Exercises the real engine: model downloads, inference across all five task
+# heads, training, validation, export and MJPEG streaming.
+#
+# Opt-in by design. It needs network access (to fetch checkpoints and the coco8
+# dataset) and several minutes of CPU, so running it on every push would slow
+# the main CI gate without adding much signal. Run it on demand, on a nightly
+# schedule, and before a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_models:
+        description: "Cache downloaded weights between runs"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 3 * * *"
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Engine integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # a wedged training run must not hold a runner for hours
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Create environment
+        working-directory: apps/api
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+      - name: Cache model weights and datasets
+        if: github.event_name != 'workflow_dispatch' || inputs.upload_models
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/api/storage/weights
+            apps/api/datasets
+          key: yolo-assets-${{ runner.os }}-${{ hashFiles('apps/api/requirements.txt') }}
+          restore-keys: yolo-assets-${{ runner.os }}-
+
+      - name: Run integration tests
+        working-directory: apps/api
+        # These download yolo11n (and its -seg/-pose/-cls variants) plus coco8 on
+        # first run; the cache above makes subsequent runs much faster.
+        run: .venv/bin/python -m pytest -m integration -v
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-artifacts
+          path: |
+            apps/api/storage/runs
+            apps/api/storage/outputs
+          if-no-files-found: ignore
+          retention-days: 7

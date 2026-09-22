@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Sightrail - API runtime dependencies
+# ---------------------------------------------------------------------------
+# Core inference / training engine. Installed with --extra-index-url for the
+# CUDA build of PyTorch; see `npm run bootstrap` (scripts/bootstrap.mjs) for the full install flow.
+ultralytics>=8.3.0
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+# Video / image handling
+opencv-python-headless>=4.10.0
+numpy>=1.26.0
+Pillow>=10.4.0
+# Utilities
+aiofiles>=24.1.0
+psutil>=6.0.0
+PyYAML>=6.0.2
