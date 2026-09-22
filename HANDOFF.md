@@ -118,9 +118,13 @@ Ordered by value, not difficulty.
    `TestClient.websocket_connect` is the obvious starting point.
 2. **`services/runners.py` is covered only end-to-end** through the integration
    suite. Unit tests would mean stubbing `engine` per mode.
-3. **Nothing is committed.** The working tree holds the entire project as
-   untracked files. Commit before making changes, so the audit fix history is
-   legible.
+3. **Two React Compiler lint rules are held at `warn`.** `eslint-plugin-react-hooks`
+   7 moved the compiler rule set into `recommended` at `error` with no legacy
+   preset. `set-state-in-effect` fires 14 times (effects that call `setState`
+   synchronously) and `preserve-manual-memoization` twice. They are warnings, not
+   errors, so they gate nothing — see `apps/web/eslint.config.js`. Migrating the
+   14 effects is the substantive part; the 2 memoization findings are compiler
+   optimisation notes, not defects.
 4. **No authentication.** By design — the reverse proxy is the intended boundary,
    documented in `SECURITY.md`. Do not expose this to an untrusted network.
 5. **Job history is in-memory** and cleared on restart
@@ -134,6 +138,10 @@ Ordered by value, not difficulty.
 8. **Never rendered in a browser.** The UI is verified by compilation, types and
    tests — not visually. `/help` and the System device panel are the most likely
    places to need polish.
+9. **Actions are pinned to version tags, not commit SHAs.** zizmor's code-scanning
+   check reports this as `unpinned action reference` on all three workflows — a
+   real supply-chain hardening opportunity, and the reason PR #6's `zizmor` check
+   is red. Not one of the required status checks, so it does not block a merge.
 
 ---
 
