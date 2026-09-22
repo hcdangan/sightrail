@@ -32,6 +32,8 @@ import {
   Wrench,
 } from 'lucide-react';
 
+import { LICENSE_ID, LICENSE_URL, SOURCE_URL } from './licensing';
+
 /* ------------------------------------------------------------------ types */
 
 export interface CommandLine {
@@ -123,6 +125,7 @@ export const IMPORTANT_NOTES: string[] = [
   'The first prediction downloads yolo11n.pt (about 5 MB). Later runs reuse it from storage/weights.',
   'npm run dev needs .venv to exist. Run npm run bootstrap once on a fresh clone.',
   'Ctrl+C in the terminal running npm run dev stops both processes.',
+  `This application is ${LICENSE_ID}. Serving it to other people over a network means offering them the source you are running (AGPL §13) — the Source code link below does that.`,
 ];
 
 export const TOUR: TourStop[] = [
@@ -293,6 +296,8 @@ export const REFERENCE_LINKS: ReferenceLink[] = [
   { label: 'Ultralytics docs', href: 'https://docs.ultralytics.com/', note: 'Upstream framework documentation', external: true },
   { label: 'Modes reference', href: 'https://docs.ultralytics.com/modes/', note: 'Predict, track, train, val, export, benchmark', external: true },
   { label: 'Solutions library', href: 'https://docs.ultralytics.com/solutions/', note: 'What each analytics solution does', external: true },
+  { label: `${LICENSE_ID} license`, href: LICENSE_URL, note: 'The license this application is released under', external: true },
+  { label: 'Source code', href: SOURCE_URL, note: 'The source this deployment runs — the offer AGPL §13 requires', external: true },
 ];
 
 export const REPO_DOCS: { label: string; path: string; note: string; icon: LucideIcon }[] = [
@@ -302,6 +307,8 @@ export const REPO_DOCS: { label: string; path: string; note: string; icon: Lucid
   { label: 'docs/FEATURES.md', path: 'docs/FEATURES.md', note: 'Capability to implementation matrix', icon: Boxes },
   { label: 'docs/DEVELOPMENT.md', path: 'docs/DEVELOPMENT.md', note: 'Inner loop, conventions, debugging', icon: Wrench },
   { label: 'CONTRIBUTING.md', path: 'CONTRIBUTING.md', note: 'How to propose a change', icon: Play },
+  { label: 'SECURITY.md', path: 'SECURITY.md', note: 'Deployment model and known limitations', icon: AlertTriangle },
+  { label: 'THIRD-PARTY-NOTICES.md', path: 'THIRD-PARTY-NOTICES.md', note: 'Dependency licenses and AGPL obligations', icon: Layers },
 ];
 
 /** Commands a test asserts are documented in both this module and the README. */

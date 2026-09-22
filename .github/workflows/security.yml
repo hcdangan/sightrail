@@ -1,17 +1,20 @@
 name: Security
 
-# Four independent checks, each uploaded as SARIF so findings appear in the
+# Six independent checks, each uploaded as SARIF so findings appear in the
 # repository's Security tab rather than only in a log nobody reads:
 #
 #   secrets      - gitleaks over the full history
 #   python-sast  - bandit (plus ruff's `S` rules run in the CI workflow)
 #   python-deps  - pip-audit against the pinned requirements
 #   node-deps    - npm audit against the lockfile
+#   licenses     - license-report.mjs over both dependency closures
+#   actions      - zizmor over the workflows themselves
 #
 # Findings are advisory by default: dependency CVEs and heuristic SAST rules
 # produce false positives, and a red build on every unrelated advisory trains
-# people to ignore the check. The job fails only on a leaked secret, which is
-# never acceptable.
+# people to ignore the check. Two jobs fail the build unconditionally, because
+# neither has a defensible false positive: a leaked secret, and a dependency
+# that cannot legally be distributed under AGPL-3.0.
 
 on:
   push:
@@ -141,6 +144,44 @@ jobs:
             echo "## Node dependency audit"
             echo '```'
             cat audit.txt 2>/dev/null || echo "audit output unavailable"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  licenses:
+    name: License compliance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install API dependencies
+        # The web closure is read from the committed package-lock.json, so only
+        # the Python side needs a real environment.
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -r apps/api/requirements.txt
+
+      - name: License report
+        # Unlike the audits above, this failure is never a false positive: a
+        # GPL/SSPL/BUSL component means the distribution would be unlawful.
+        run: npm run license:report | tee license-report.txt
+
+      - name: Summarise report
+        if: always()
+        run: |
+          {
+            echo "## License report"
+            echo '```'
+            cat license-report.txt 2>/dev/null || echo "report unavailable"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

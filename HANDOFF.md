@@ -18,8 +18,9 @@ changed and why).**
 | --- | --- |
 | Location | `C:\code\sightrail` |
 | Version | `1.3.0`, consistent across all four manifests + the CHANGELOG |
-| Git | initialised, branch `main`, one commit tracking only `LICENSE` — **everything else is untracked and uncommitted** |
-| Quality gates | `npm run verify` green: version check → typecheck (web + API) → lint (web + API) → build → 20 web tests → 148 backend tests |
+| Git | branch `main`, 130 tracked files, pushed to `origin` (`https://github.com/hcdangan/sightrail`), in sync with `origin/main` |
+| Quality gates | `npm run verify` green: version check → typecheck (web + API) → lint (web + API) → build → 28 web tests → 148 backend tests; `npm run license:report` green |
+| Licensing | AGPL-3.0-or-later, declared in every manifest and enforced by `npm run license:report` (also a blocking job in the Security workflow). Details in `THIRD-PARTY-NOTICES.md`. |
 | Compute device | `.env` sets `SIGHTRAIL_DEVICE=cpu`; `cuda:0` falls back to CPU (no CUDA torch build); `hailo` reports `runtime-missing` |
 
 ### Environment notes
@@ -74,6 +75,23 @@ A short summary; `CHANGELOG.md` has the full detail.
    normalisations replaced by the null-safe `serialise_names`.
 10. `JobStore.list` renamed `list_jobs`; it shadowed the builtin inside the class.
 
+### Licensing
+
+* **AGPL-3.0-or-later is a requirement, not a choice.** `ultralytics`,
+  `ultralytics-thop` and `ultralytics-platform` are AGPL-3.0 and are imported
+  in-process by `core/`, so the combined work cannot be relicensed. Do not
+  "correct" the `license` field in any manifest, and do not add a permissively
+  licensed sub-package that links Ultralytics.
+* `THIRD-PARTY-NOTICES.md` records every runtime and production-frontend
+  dependency, the weights/datasets that are *not* covered, and the AGPL §13
+  network obligations.
+* `npm run license:report` regenerates those numbers from the lockfile and the
+  installed distributions and fails on GPL/SSPL/BUSL/Elastic. It is a blocking
+  job in `security.yml`.
+* The one non-permissive-looking component that is fine: `certifi` is MPL-2.0
+  (file-level copyleft, compatible with AGPL-3.0). `lightningcss` in the frontend
+  is MPL-2.0 too and is build-time only.
+
 ### Tooling
 
 * `apps/api/pyproject.toml` is the single source of truth for ruff, mypy, bandit
@@ -82,8 +100,8 @@ A short summary; `CHANGELOG.md` has the full detail.
   policy** in that config, not scattered inline `noqa`s — those drift as soon as
   the formatter runs. Adding a file to that list needs a reason in the same commit.
 * GitHub Actions: `ci.yml` (lint/typecheck/test matrix/build), `security.yml`
-  (gitleaks, bandit→SARIF, pip-audit, npm audit, zizmor), `integration.yml`
-  (opt-in real-engine tests).
+  (gitleaks, bandit→SARIF, pip-audit, npm audit, license report, zizmor),
+  `integration.yml` (opt-in real-engine tests).
 * `SECURITY.md`, `CODEOWNERS`, Dependabot, issue/PR templates, `.gitleaks.toml`.
 * `npm run version:check` asserts the version agrees everywhere; CI enforces it.
 

@@ -71,6 +71,7 @@ npm run dev:web      # frontend only
 | --- | --- |
 | `npm run verify` | everything below, in CI order — run this before pushing |
 | `npm run version:check` | assert the version agrees across all manifests and the CHANGELOG |
+| `npm run license:report` | resolve both dependency closures and fail on an AGPL-3.0-incompatible license |
 | `npm run typecheck` | `tsc --noEmit` over the SPA |
 | `npm run typecheck:api` | `mypy` over the API package |
 | `npm run lint` | ESLint (flat config, React hooks rules) |
@@ -79,7 +80,7 @@ npm run dev:web      # frontend only
 | `npm run test:api` | backend unit + contract + device tests |
 | `npm run test:api -- -m integration` | real inference, tracking, validation, export |
 | `npm run test` | frontend + backend |
-| `npm run test:web` | frontend only (help-content consistency tests) |
+| `npm run test:web` | frontend only (help-content consistency + licensing invariants) |
 
 ## 3. Testing strategy
 
@@ -165,6 +166,21 @@ before the fix.
   `CanvasOverlay`).
 * **Accessibility basics**: every icon-only button has an `aria-label`, dialogs
   are `role="dialog"` with `aria-modal`, toggles use `role="switch"`.
+
+### Licensing
+
+* **The project is AGPL-3.0-or-later, and that is not negotiable.** `ultralytics`
+  and `ultralytics-thop` are AGPL-3.0 and are imported in-process, so the
+  combined work cannot be distributed under anything more permissive. Do not
+  "fix" the `license` field in any manifest.
+* **Before adding a dependency, run `npm run license:report`.** It resolves the
+  web production closure and the API runtime closure and fails on anything
+  incompatible with AGPL-3.0 (GPL without the Affero clause, SSPL, BUSL, Elastic).
+  LGPL and MPL components are compatible and reported as notes.
+* **Record what you add.** Update `THIRD-PARTY-NOTICES.md` in the same commit as
+  the dependency; the report prints the exact table to paste in.
+* **Never add a permissive-only sub-package** that links Ultralytics and is
+  published separately — that is the one pattern the AGPL does not permit.
 
 ## 5. Debugging playbook
 

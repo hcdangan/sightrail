@@ -294,6 +294,7 @@ this structure and the request lifecycle.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to propose changes |
 | [`SECURITY.md`](SECURITY.md) | Deployment model, known limitations, and what is not a vulnerability |
 | [`HANDOFF.md`](HANDOFF.md) | Current state, known gaps and suggested next steps |
+| [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Dependency licenses, model-weight licensing, and AGPL network obligations |
 | Interactive API docs | `http://127.0.0.1:8000/api/docs` (Swagger) and `/api/redoc` |
 
 ## Configuration
@@ -344,7 +345,35 @@ engine tests that download weights and train are marked `integration`.
 
 ## License
 
-Released under the **AGPL-3.0** license, matching
-[Ultralytics YOLO](https://github.com/ultralytics/ultralytics). Model weights
-downloaded through Sightrail carry their own licenses — review them before
-commercial use.
+Released under the **[GNU Affero General Public License v3.0](LICENSE)**
+(`AGPL-3.0-or-later`), matching [Ultralytics YOLO](https://github.com/ultralytics/ultralytics).
+
+This is not a preference — it is a requirement. `ultralytics`,
+`ultralytics-thop` and `ultralytics-platform` are AGPL-3.0, and Sightrail
+imports them in-process, so the combined work must be AGPL-3.0. A permissive
+license here would be inaccurate and unenforceable.
+
+What that means in practice:
+
+- **Self-hosting is unrestricted.** Run it internally, modify it, no obligation
+  to publish anything, as long as you do not offer it to others over a network.
+- **Offering it as a network service triggers AGPL §13.** If you let third
+  parties interact with a modified version over a network, you must offer them
+  the corresponding source of your modified version.
+- **Model weights are separate.** Checkpoints downloaded through Sightrail are
+  not covered by this license and carry their own terms — review them before
+  commercial use.
+
+Per-dependency license details, the frontend bundle's license inventory, and the
+full AGPL §13 obligations are in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Reproduce and check them
+with:
+
+```bash
+npm run license:report   # fails on any AGPL-3.0-incompatible dependency
+```
+
+If AGPL-3.0 does not fit your use case, [Ultralytics Enterprise
+Licensing](https://www.ultralytics.com/license) is the supported path — it
+removes the copyleft obligation for the Ultralytics components and is the only
+route to a permissively licensed distribution of this project.

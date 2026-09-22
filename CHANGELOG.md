@@ -9,6 +9,33 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ## [Unreleased]
 
+### Added
+
+* **`THIRD-PARTY-NOTICES.md`** — the complete licensing position: every runtime
+  and production-frontend dependency with the license its own metadata declares,
+  the model weights and datasets that are *not* covered by this project's
+  license, and the AGPL §13 obligations a network deployment inherits.
+* **`npm run license:report`** (`scripts/license-report.mjs`). It resolves the web
+  production closure from `package-lock.json` and the API runtime closure from the
+  installed distributions, evaluating environment markers so platform-gated
+  dependencies are not misreported. It prints the license distribution and exits
+  non-zero on anything incompatible with AGPL-3.0 (GPL without the Affero clause,
+  SSPL, BUSL, Elastic). LGPL/MPL components are reported as notes, because they
+  are file-level copyleft and compatible. Wired into the Security workflow as a
+  blocking job.
+* A `license` field on `apps/web/package.json` — the one manifest that was
+  missing one.
+* A **Licensing** section in `docs/DEVELOPMENT.md`, and a `License` section in the
+  README that states the obligations rather than only the license name.
+
+### Fixed
+
+* **The license is now stated and enforced consistently as AGPL-3.0-or-later.**
+  `ultralytics`, `ultralytics-thop` and `ultralytics-platform` are AGPL-3.0 and
+  are imported in-process by `core/`, so the combined work cannot be distributed
+  under anything more permissive. This is a legal requirement, not a preference,
+  and it is now declared by every manifest rather than all but one.
+
 ### Planned
 
 * Authentication for non-localhost deployments (currently the reverse proxy is

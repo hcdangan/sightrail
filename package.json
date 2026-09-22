@@ -26,6 +26,7 @@
     "test:api": "node scripts/run-api-tests.mjs",
     "test:web": "npm --workspace apps/web run test",
     "version:check": "node scripts/check-version.mjs",
+    "license:report": "node scripts/license-report.mjs",
     "verify": "npm run version:check && npm run typecheck && npm run typecheck:api && npm run lint && npm run lint:api && npm run build && npm run test:web && npm run test:api",
     "bootstrap": "node scripts/bootstrap.mjs"
   },
