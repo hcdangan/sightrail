@@ -40,9 +40,12 @@ fails or silently pulls nothing, which makes the API report *engine unavailable*
 ### GPU and other accelerators
 
 ```bash
-# NVIDIA
-uv pip install --python .venv/Scripts/python.exe torch torchvision \
-  --index-url https://download.pytorch.org/whl/cu124
+# NVIDIA — the index depends on the card: cu126 for Turing..Hopper, cu130 for
+# Blackwell (RTX 50-series). See the README's CUDA table.
+# --reinstall is required, not cosmetic: uv and pip both treat an installed
+# torch==...+cpu as already satisfying `torch`, so without it nothing is swapped.
+uv pip install --python .venv/Scripts/python.exe --reinstall --no-deps torch torchvision \
+  --index-url https://download.pytorch.org/whl/cu126
 ```
 
 Device selection lives in one variable — `SIGHTRAIL_DEVICE` in `.env` (copy

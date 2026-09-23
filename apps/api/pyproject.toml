@@ -39,6 +39,8 @@ dependencies = [
   "aiofiles>=24.1.0",
   "psutil>=6.0.0",
   "PyYAML>=6.0.2",
+  "torch",
+  "torchvision",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +52,22 @@ dev = [
   "mypy>=1.11.0",
   "bandit>=1.7.10",
   "pip-audit>=2.7.0",
+]
+
+# ---------------------------------------------------------------------------
+# CUDA fix
+# ---------------------------------------------------------------------------
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128" },
+]
+torchvision = [
+  { index = "pytorch-cu128" },
 ]
 
 [project.urls]

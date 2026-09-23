@@ -93,6 +93,32 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **The CUDA reinstall advice could not work, and named stale indexes.** Following
+  the `cpu-only-torch` remediation exactly as printed left the CPU build in place,
+  so a "successful" reinstall and the same error message coexisted. Two causes:
+
+  * The emitted command omitted `--reinstall`. pip and uv both treat an installed
+    `torch==2.14.0+cpu` as satisfying a bare `torch` requirement, so
+    `uv pip install torch --index-url …` exits 0, prints *"Would make no changes"*
+    and swaps nothing. The advice is now `--reinstall --no-deps`: the first forces
+    the wheel swap, the second stops the CUDA index from also installing its older
+    numpy/setuptools/filelock copies over newer ones (a full resolve wanted to take
+    numpy 2.5.3 back to 2.5.2 and setuptools 84 back to 78.1).
+  * Those indexes were stale, not merely wrong. `cuda_torch_index()` returned `cu128`
+    for Blackwell and `cu124` otherwise, but they are frozen at torch 2.11.0 and
+    2.6.0, so on a machine already running 2.14.0 the advice *downgrades* instead of
+    fixing. Blackwell now gets `cu130`, everything else `cu126`, and both publish
+    `2.14.0`. `cu128` remains correct-but-older for Blackwell hosts whose driver
+    predates CUDA 13, and is documented as the fallback.
+
+  `test_the_reinstall_advice_cannot_be_a_silent_noop` locks the flags in, and
+  `test_blackwell_gets_the_cu130_index` / `test_turing_and_hopper_keep_the_cu126_index`
+  replace the tests that pinned the old indexes.
+
+  Found on a real machine: CUDA torch had been installed into the *system* Python
+  while the API runs `.venv/Scripts/python.exe`, so a correct install had no effect.
+  The README CUDA section now states that the install must target `.venv`.
+
 * **Live webcam inference never sent a single frame to the API.** The client
   camera loop captured frames correctly — `useCamera` was called ~40 times a
   second and produced a valid JPEG data URL each time — but `useLiveInference.send`

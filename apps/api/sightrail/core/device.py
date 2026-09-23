@@ -110,12 +110,19 @@ def cuda_available() -> bool:
 
 #: PyTorch wheel indexes, by GPU generation.
 #:
-#: Blackwell needs CUDA 12.8+; Turing..Hopper are served by cu124. Verified against
-#: https://download.pytorch.org/whl/cu128/torch/ (2.14.0 ships a cp312 win_amd64
-#: wheel). Getting this wrong installs a wheel that succeeds and then fails at the
-#: first kernel launch, so the index is derived from the detected card.
-_CUDA_TORCH_INDEX_DEFAULT = "https://download.pytorch.org/whl/cu124"
-_CUDA_TORCH_INDEX_BLACKWELL = "https://download.pytorch.org/whl/cu128"
+#: Blackwell needs CUDA 12.8+; Turing..Hopper are served by cu126. The index must
+#: also still publish a *current* torch, which is the second trap: cu124 and cu128
+#: were frozen at torch 2.6.0 and 2.11.0, so pointing a card at them trades a CPU
+#: build for an older one instead of fixing anything. Verified against the indexes
+#: themselves (cp312 win_amd64):
+#:   https://download.pytorch.org/whl/cu126/torch/  -> 2.14.0+cu126
+#:   https://download.pytorch.org/whl/cu130/torch/  -> 2.14.0+cu130
+#: cu128 builds do list sm_120, so they remain the fallback for Blackwell hosts
+#: whose driver predates CUDA 13. Getting the architecture wrong installs a wheel
+#: that succeeds and then fails at the first kernel launch, so the index is derived
+#: from the detected card.
+_CUDA_TORCH_INDEX_DEFAULT = "https://download.pytorch.org/whl/cu126"
+_CUDA_TORCH_INDEX_BLACKWELL = "https://download.pytorch.org/whl/cu130"
 
 
 def cuda_torch_index() -> str:
@@ -124,7 +131,7 @@ def cuda_torch_index() -> str:
     A single hardcoded index is wrong for most machines: Blackwell (RTX 50-series,
     sm_120) needs CUDA 12.8 or newer, and a cu124 wheel installs cleanly and then
     fails at the first kernel launch with "no kernel image is available". Turing
-    through Hopper are covered by cu124. Cards below sm_75 have no current wheel
+    through Hopper are covered by cu126. Cards below sm_75 have no current wheel
     at all.
     """
     capability = cuda_hardware()["compute_capability"]
@@ -136,12 +143,24 @@ def cuda_torch_index() -> str:
 
 
 def _pip_cuda_install(index_url: str) -> str:
-    """The reinstall command for this platform, as copy-pasteable text."""
+    """The reinstall command for this platform, as copy-pasteable text.
+
+    ``--reinstall`` is load-bearing, not decoration. pip and uv both treat an
+    installed ``torch==2.14.0+cpu`` as satisfying a bare ``torch`` requirement, so
+    without it the command exits 0 and changes nothing -- which is exactly how
+    "I already reinstalled torch with CUDA" and "PyTorch is a CPU-only build" end
+    up true at the same time. (pip spells it ``--force-reinstall``.)
+
+    ``--no-deps`` keeps the CUDA wheel from dragging unrelated packages backwards:
+    the CUDA indexes carry stale copies of numpy, setuptools, filelock and friends,
+    which a full resolve will happily install in place of newer ones.
+    """
     return (
-        "uv pip install --python .venv/Scripts/python.exe torch torchvision "
-        f"--index-url {index_url}\n"
+        "uv pip install --python .venv/Scripts/python.exe --reinstall --no-deps "
+        f"torch torchvision --index-url {index_url}\n"
         "# macOS / Linux:\n"
-        f"uv pip install --python .venv/bin/python torch torchvision --index-url {index_url}"
+        f"uv pip install --python .venv/bin/python --reinstall --no-deps "
+        f"torch torchvision --index-url {index_url}"
     )
 
 
@@ -320,7 +339,7 @@ def cuda_state() -> dict[str, Any]:
                         f"PyTorch can see the GPU ({hardware['name']}) but this build has no kernels for it: "
                         f"it was compiled for {', '.join(arch_list)} and the card needs {wanted}. Inference "
                         "fails at the first kernel launch. Reinstall torch from a CUDA index that covers this "
-                        "card — Blackwell (RTX 50-series) needs cu128 or newer."
+                        "card — Blackwell (RTX 50-series) needs a CUDA 12.8+ build."
                     ),
                     "torch_version": version,
                     "torch_cuda": cuda_build,

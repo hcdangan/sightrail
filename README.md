@@ -187,25 +187,43 @@ index that matches your GPU — **the index is not interchangeable**:
 
 | GPU | Compute capability | Index |
 | --- | --- | --- |
-| RTX 50-series (Blackwell) | sm_120 | `cu128` |
-| RTX 20/30/40-series, GTX 16-series (Turing → Ada) | sm_75 – sm_89 | `cu124` |
-| Datacentre A100/H100 | sm_80 / sm_90 | `cu124` |
+| RTX 50-series (Blackwell) | sm_120 | `cu130` |
+| RTX 20/30/40-series, GTX 16-series (Turing → Ada) | sm_75 – sm_89 | `cu126` |
+| Datacentre A100/H100 | sm_80 / sm_90 | `cu126` |
 | Maxwell / Pascal / Volta (e.g. GTX 9xx, MX130) | below sm_75 | none — no current wheel supports these |
 
 ```bash
 # RTX 50-series (Blackwell)
-uv pip install --python .venv/Scripts/python.exe torch torchvision \
-  --index-url https://download.pytorch.org/whl/cu128
+uv pip install --python .venv/Scripts/python.exe --reinstall --no-deps torch torchvision \
+  --index-url https://download.pytorch.org/whl/cu130
 
 # Everything Turing-and-newer up to Hopper
-uv pip install --python .venv/Scripts/python.exe torch torchvision \
-  --index-url https://download.pytorch.org/whl/cu124
+uv pip install --python .venv/Scripts/python.exe --reinstall --no-deps torch torchvision \
+  --index-url https://download.pytorch.org/whl/cu126
 ```
 
-Installing the wrong one is a trap: a `cu124` wheel on an RTX 50-series card
-installs cleanly and reports `torch.cuda.is_available() == True`, then dies at the
-first kernel launch with *"no kernel image is available for execution on the
-device"*. Check the architecture list to confirm a build covers your card:
+Install into the project's `.venv`, because that is what the API runs
+(`.venv/Scripts/python.exe`). A CUDA torch in the system Python or in some other
+environment has no effect on Sightrail at all.
+
+`--reinstall` is required rather than tidy. pip and uv both treat an installed
+`torch==2.14.0+cpu` as already satisfying a bare `torch` requirement, so without it
+the command exits 0, reports *"Would make no changes"*, and leaves the CPU build in
+place — the classic "I already installed torch with CUDA but the error persists".
+`--no-deps` stops the CUDA index from also installing its older copies of numpy,
+setuptools, filelock and friends over newer ones.
+
+Two different things can go wrong here, and they need different indexes:
+
+* **Too old a CUDA version.** A `cu124` wheel on an RTX 50-series card installs
+  cleanly and reports `torch.cuda.is_available() == True`, then dies at the first
+  kernel launch with *"no kernel image is available for execution on the device"*.
+* **A stale index.** `cu124` and `cu128` are still served, but are frozen at torch
+  2.6.0 and 2.11.0. Advice written against them *downgrades* a working install
+  instead of fixing it, so use the index above rather than any index whose CUDA
+  version merely looks new enough.
+
+Check the architecture list to confirm a build covers your card:
 
 ```bash
 .venv\Scripts\python.exe -c "import torch; print(torch.cuda.get_arch_list())"
@@ -222,7 +240,7 @@ engage, open **System → Compute device**, which names the exact condition:
 | `no-cuda-hardware` | No NVIDIA GPU in this machine | None needed — CPU runs every mode. Nothing to reinstall. |
 | `unsupported-gpu` | A GPU is present but older than any current CUDA build (below sm_75) | Use CPU. No published wheel will run it. |
 | `cpu-only-torch` | A supported GPU is present, but this torch was built without CUDA | Reinstall from the index above for your card. |
-| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it | Wrong index — e.g. `cu124` on Blackwell. Reinstall from the right one. |
+| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it | Wrong or stale index — e.g. `cu124`, or `cu128` on Blackwell. Reinstall from the right one. |
 | `driver-unavailable` | CUDA build present, GPU visible, driver too old | Update the NVIDIA driver, or use a wheel for an older toolkit. |
 
 Confirm the active device and the reason at any time:

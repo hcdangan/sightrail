@@ -322,30 +322,52 @@ def test_device_config_exposes_cuda_state(with_stub_torch):
 # ------------------------------------------------ GPU generations and indexes
 
 
-def test_blackwell_gets_the_cu128_index(with_stub_torch, monkeypatch):
-    """An RTX 50-series card must be sent to cu128, not cu124.
+def test_blackwell_gets_the_cu130_index(with_stub_torch, monkeypatch):
+    """An RTX 50-series card must be sent to cu130, not cu124 or cu128.
 
     cu124 installs cleanly on Blackwell and then fails at the first kernel launch
     with "no kernel image is available", so the wrong index is a real trap. The
     repository previously hardcoded cu124 in the advice for every card.
+
+    cu128 covers sm_120 but its newest torch is 2.11.0, so it is stale rather than
+    wrong: advising it downgrades a 2.14.0 install instead of fixing it.
     """
     with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
     _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 5070 Ti", capability=12.0)
 
-    assert device_mod.cuda_torch_index().endswith("/cu128")
+    assert device_mod.cuda_torch_index().endswith("/cu130")
     state = device_mod.cuda_state()
 
     assert state["status"] == "cpu-only-torch"
-    assert state["torch_index"].endswith("/cu128")
-    assert any("cu128" in step["detail"] for step in state["steps"])
+    assert state["torch_index"].endswith("/cu130")
+    assert any("cu130" in step["detail"] for step in state["steps"])
     assert "5070 Ti" in state["summary"], "naming the card makes the advice verifiable"
 
 
-def test_turing_and_hopper_keep_the_cu124_index(with_stub_torch, monkeypatch):
+def test_turing_and_hopper_keep_the_cu126_index(with_stub_torch, monkeypatch):
     with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
     _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 4090", capability=8.9)
 
-    assert device_mod.cuda_torch_index().endswith("/cu124")
+    assert device_mod.cuda_torch_index().endswith("/cu126")
+
+
+def test_the_reinstall_advice_cannot_be_a_silent_noop(with_stub_torch, monkeypatch):
+    """The advice must force the wheel swap, not just name an index.
+
+    pip and uv both treat an installed `torch==2.14.0+cpu` as satisfying a bare
+    `torch` requirement. A plain `uv pip install torch --index-url .../cu130`
+    therefore exits 0, prints "Would make no changes", and leaves the CPU build in
+    place -- which is precisely how a user ends up reporting "I already installed
+    torch with CUDA but the error still happens".
+    """
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 5070 Ti", capability=12.0)
+
+    advice = " ".join(step["detail"] for step in device_mod.cuda_state()["steps"])
+
+    assert "--reinstall" in advice, "without this the command changes nothing"
+    assert "--no-deps" in advice, "the CUDA indexes carry stale numpy/setuptools"
+    assert advice.count("--reinstall") == 2, "both the Windows and POSIX variants"
 
 
 def test_a_card_no_current_build_supports_is_reported_as_unusable(with_stub_torch, monkeypatch):
@@ -389,8 +411,8 @@ def test_a_cuda_build_can_see_a_gpu_it_has_no_kernels_for(with_stub_torch, monke
 
     assert state["status"] == "gpu-not-in-torch-build"
     assert "sm_120" in state["summary"]
-    assert state["torch_index"].endswith("/cu128")
-    assert any("cu128" in step["detail"] for step in state["steps"])
+    assert state["torch_index"].endswith("/cu130")
+    assert any("cu130" in step["detail"] for step in state["steps"])
 
 
 def test_a_matching_arch_list_is_reported_ready(with_stub_torch, monkeypatch):

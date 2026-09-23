@@ -113,17 +113,24 @@ most report `torch.cuda.is_available() == false` — but need different (or no) 
 | `no-cuda-hardware` | No NVIDIA GPU in this machine | None — CPU runs every mode |
 | `unsupported-gpu` | A GPU is present but below sm_75 (Maxwell/Pascal/Volta) | None; no current wheel supports it |
 | `cpu-only-torch` | A supported GPU is present, but torch was built without CUDA (`torch.version.cuda` is `null`) | Reinstall from the index for that card |
-| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it (`torch.cuda.get_arch_list()` lacks the card's `sm_`) | Wrong index — e.g. `cu124` on Blackwell; use `cu128` |
+| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it (`torch.cuda.get_arch_list()` lacks the card's `sm_`) | Wrong or stale index — e.g. `cu124`, or `cu128` on Blackwell; use `cu130` |
 | `driver-unavailable` | CUDA build present and GPU visible, but torch cannot use it | Update the driver, or use a wheel for an older toolkit |
 
 A CUDA profile carries the same value as `state`, and its `detail` repeats the
 summary so the device selector can show the cause without a second request.
 
-`cuda_state.torch_index` is the wheel index that suits the detected card — `cu124`
-up to Hopper, `cu128` for Blackwell (sm_120+), which needs CUDA 12.8 or newer. It
+`cuda_state.torch_index` is the wheel index that suits the detected card — `cu126`
+up to Hopper, `cu130` for Blackwell (sm_120+), which needs CUDA 12.8 or newer. It
 is derived from the card's compute capability rather than hardcoded, because a
 `cu124` wheel installs cleanly on an RTX 50-series and then fails at the first
 kernel launch.
+
+The index must also still publish a current torch, which is a separate failure
+mode: `cu124` and `cu128` are frozen at torch 2.6.0 and 2.11.0, so advice naming
+them *downgrades* a working install rather than fixing it. For the same reason the
+emitted `steps` carry `--reinstall --no-deps`: pip and uv treat an installed
+`torch==2.14.0+cpu` as satisfying a bare `torch` requirement, so a plain install
+exits successfully and changes nothing.
 
 Each non-ready status also returns `verify` (commands to confirm the diagnosis)
 and `steps` (the ordered fix), rendered by **System → Compute device**. Statuses
