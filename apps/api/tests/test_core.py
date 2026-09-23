@@ -452,3 +452,51 @@ def test_job_store_create_and_cancel():
     assert job.cancel_requested is True
     assert store.clear_finished() >= 0
     store.shutdown()
+
+
+# --------------------------------------------------------------------- engine
+
+
+def test_training_loads_its_pretrained_source_on_cpu(monkeypatch):
+    """The pretrained source must be CPU-resident, whatever device trains.
+
+    Ultralytics' trainer builds a *fresh* model and copies these weights into it,
+    and that copy runs ``BaseModel._remap_cls_by_names``, which assigns with
+    ``v_src[idx[valid]].to(v_tgt.dtype)`` — dtype only, never device. A CUDA-resident
+    source into the trainer's CPU-built model therefore raises *"Expected all tensors
+    to be on the same device, but found at least two devices, cuda:0 and cpu!"*.
+
+    It fires exactly when every training class name matches the checkpoint's while the
+    class sets differ (fine-tuning a COCO checkpoint on a COCO subset), because an
+    all-true boolean mask takes PyTorch's device-checked assignment path — a partially
+    true mask happens to tolerate the cross-device copy and hides the bug. The trainer
+    moves the finished model to the requested device itself, so loading the source on
+    CPU does not cost GPU training.
+    """
+    from sightrail.core import engine as engine_mod
+
+    calls: dict[str, Any] = {}
+
+    class StubModel:
+        def train(self, **kwargs: Any) -> str:
+            calls["train_kwargs"] = kwargs
+            return "trained"
+
+    class StubRecord:
+        model = StubModel()
+
+    class StubRegistry:
+        def load(self, model_id: str, device: str | None = None, task: str | None = None) -> StubRecord:
+            calls["load_device"] = device
+            calls["model_id"] = model_id
+            return StubRecord()
+
+    monkeypatch.setattr(engine_mod.engine, "registry", StubRegistry())
+    result = engine_mod.engine.train("yolo11n.pt", data="data.yaml", device="cuda:0")
+
+    assert result == "trained"
+    assert calls["model_id"] == "yolo11n.pt"
+    # The source the trainer copies from must be on CPU...
+    assert calls["load_device"] == "cpu"
+    # ...while the run itself still goes to the requested accelerator.
+    assert calls["train_kwargs"]["device"] == "cuda:0"

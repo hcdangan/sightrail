@@ -93,6 +93,31 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **Fine-tuning crashed on the GPU with "Expected all tensors to be on the same
+  device, but found at least two devices, cuda:0 and cpu!".** `engine.train()` loaded
+  the checkpoint through the registry with no device, which resolves to the
+  accelerator, so the pretrained source was CUDA-resident. Ultralytics' trainer then
+  builds a *fresh* model on CPU and copies that source into it, and the copy runs
+  `BaseModel._remap_cls_by_names`, whose row remap is
+  `v_tgt[valid] = v_src[idx[valid]].to(v_tgt.dtype)` — dtype only, never device.
+
+  It was latent until now: `resolve_device(None)` returned `cpu` while this machine had
+  no working CUDA build, so the source never left the CPU and the assignment never
+  crossed devices. Getting the GPU working is what exposed it.
+
+  The trigger is narrower than "any class-name mismatch". A partially-true boolean mask
+  (`{person, widget}` against COCO) happens to tolerate the cross-device copy and hides
+  the bug entirely; an **all-true** mask — every training class name present in the
+  checkpoint while the class sets differ, i.e. fine-tuning on a COCO subset — takes
+  PyTorch's device-checked assignment path and raises.
+
+  `engine.train()` now loads the pretrained source on CPU. Ultralytics' trainer moves
+  the finished model to the requested device itself (`self.model.to(self.device)`), so
+  the run still happens on the GPU: verified by fine-tuning `yolo11n.pt` on a 2-class
+  COCO subset on `cuda:0`, which raised before the change and now completes and writes
+  `best.pt`. `test_training_loads_its_pretrained_source_on_cpu` pins the device choice
+  (source on CPU, run still on `cuda:0`).
+
 * **Live detection boxes sat beside the object instead of on it — by an amount that
   depended on the webcam's resolution.** The overlay scaled the analysed frame by the
   camera's *intrinsic* size (`videoWidth`), and the canvas then drew those numbers as

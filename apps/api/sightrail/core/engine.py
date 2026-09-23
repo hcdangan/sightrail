@@ -562,7 +562,22 @@ class Engine:
         return record.model.benchmark(data=data, format=",".join(formats or ["onnx"]), **kwargs)
 
     def train(self, model_id: str, **kwargs: Any) -> Any:
-        record = self.registry.load(model_id)
+        # Load the pretrained source on CPU, whatever device the run will use.
+        #
+        # Ultralytics' trainer builds a *fresh* model and copies these weights into
+        # it (`trainer.get_model(weights=self.model)`), and that copy runs
+        # `BaseModel._remap_cls_by_names`, which assigns with
+        # `v_src[idx[valid]].to(v_tgt.dtype)` — dtype only, never device. A
+        # CUDA-resident source into the trainer's CPU-built model therefore raises
+        # "Expected all tensors to be on the same device, but found at least two
+        # devices, cuda:0 and cpu!" as soon as one class name matches while the
+        # class sets differ — fine-tuning a COCO checkpoint on a custom dataset.
+        #
+        # This is why it appeared only now: the call used to resolve to whatever
+        # `resolve_device(None)` returned, which was `cpu` until the GPU worked.
+        # The trainer moves the finished model to `kwargs["device"]` itself
+        # (`self.model = self.model.to(self.device)`), so the run is still on GPU.
+        record = self.registry.load(model_id, device="cpu")
         return record.model.train(**kwargs)
 
     # -- serialisation -----------------------------------------------------
