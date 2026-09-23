@@ -471,6 +471,29 @@ copy on every frame.
 <img src="http://127.0.0.1:8000/api/stream/sessions/1a2b3c4d5e/mjpeg" />
 ```
 
+#### Session statistics
+
+`/stats` is an **aggregate** view: per-frame object *counts* and totals, not the
+objects themselves. Each `history[]` entry carries the count for that frame and
+its class breakdown:
+
+```json
+{ "frame": 42, "count": 5, "classes": { "person": 4, "bus": 1 }, "fps": 4.12 }
+```
+
+`count` is boxes + masks; `classes` counts detection, oriented-box and mask
+instances by class name, so a segmentation model's instances are attributed
+rather than only totalled.
+
+For the **detected objects themselves** — `track_id`, `class_name`, `confidence`
+and `xyxy` per object per frame — use one of:
+
+| Want | Use |
+| --- | --- |
+| Per-object detail for a video file, with stable track IDs | `POST /api/stream/track` — returns `frames[].detections[]`, plus `histogram` and `unique_ids` |
+| Per-object detail live from a camera | `WS /api/ws/live` — each `result` message carries the full `ResultPayload` |
+| Per-object detail for a single still image | `POST /api/infer` — `results[].detections.items[]` |
+
 ### `POST /api/stream/track`
 Track mode over a video, returning the full per-frame history (up to
 `max_frames`, default 180): every detection with its `track_id`, class and

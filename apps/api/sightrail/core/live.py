@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from .device import engine_device
 from .engine import Engine
 from .serialize import serialise_names
 
@@ -137,9 +138,15 @@ class LiveTracker:
         self._started = False
         self.model_record = engine.registry.load(model_id, device=device)
         self.names = serialise_names(getattr(self.model_record.model, "names", {}))
+        # Hailo resolves to itself but drives the engine as cpu, so the record's
+        # device is authoritative for what Ultralytics will accept.
         self._kwargs: dict[str, Any] = {
             "tracker": tracker,
-            "device": device,
+            # Ultralytics rejects `auto`: "Invalid CUDA 'device=auto' requested".
+            # `predict` resolves the device inside the registry, but the `track`
+            # path forwarded the requested string verbatim, which broke live
+            # tracking on every host that does not resolve to the literal request.
+            "device": engine_device(device),
             "conf": conf,
             "iou": iou,
             "imgsz": imgsz,

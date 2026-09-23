@@ -184,15 +184,24 @@ def test_torchscript_export_job_produces_an_artifact(client):
 
 
 def test_live_tracking_keeps_ids_stable(engine, synthetic_frame):
-    """The frame bridge must keep tracker state (IDs) between pushed frames."""
+    """The frame bridge must keep tracker state (IDs) between pushed frames.
+
+    It also covers the device hand-off: `device="auto"` is resolved before it
+    reaches Ultralytics, which rejects the literal string with
+    ``Invalid CUDA 'device=auto' requested``. Passing the request through
+    verbatim broke live tracking on every host whose `auto` is not itself a
+    valid device name.
+    """
     tracker = engine.live.get(
         "unit-test-session",
         model_id=DETECT_MODEL,
         tracker="bytetrack.yaml",
-        device="cpu",
+        device="auto",
         conf=0.1,
     )
     try:
+        assert tracker._kwargs["device"] != "auto", "the un-resolved device reached Ultralytics"
+        assert tracker._kwargs["device"] == tracker.model_record.device
         results = [tracker.infer(synthetic_frame) for _ in range(3)]
         assert all(result is not None for result in results)
         # The bridge must not rewrite the source path to an internal image name.
@@ -200,6 +209,50 @@ def test_live_tracking_keeps_ids_stable(engine, synthetic_frame):
     finally:
         engine.live.release("unit-test-session")
     assert "unit-test-session" not in engine.live.sessions()
+
+
+def test_mjpeg_history_records_a_per_class_breakdown(client, sample_image_path):
+    """Session history must report *which* classes were seen, not just how many.
+
+    ``history[].classes`` was hardcoded to ``{}``, so `/api/stream/sessions/{id}/stats`
+    returned an empty breakdown on every frame however many objects it found —
+    the field looked present but could never hold anything.
+    """
+    import cv2
+    import numpy as np
+
+    from sightrail.config import settings
+    from sightrail.core.streaming import StreamConfig, StreamSession, mjpeg_frames
+
+    # A clip of a real photograph, so the detector genuinely finds objects.
+    image = cv2.imread(str(sample_image_path))
+    height, width = image.shape[:2]
+    clip_dir = settings.outputs_dir / "mjpeg-history-test"
+    clip_dir.mkdir(parents=True, exist_ok=True)
+    clip_path = clip_dir / "objects.mp4"
+    writer = cv2.VideoWriter(str(clip_path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (width, height))
+    for _ in range(4):
+        writer.write(np.full((height, width, 3), 0, dtype=np.uint8) + image)
+    writer.release()
+
+    session = StreamSession(
+        StreamConfig(model_id=DETECT_MODEL, device="cpu", tracker=None, jpeg_quality=60),
+        str(clip_path),
+    )
+    try:
+        for index, _chunk in enumerate(mjpeg_frames(session), start=1):
+            if index >= 2:
+                session.stop()
+                break
+
+        assert session.history, "the session recorded no history"
+        populated = [entry for entry in session.history if entry["classes"]]
+        assert populated, f"every frame reported empty classes: {list(session.history)[:2]}"
+        # The breakdown must agree with the per-frame object count.
+        entry = populated[0]
+        assert sum(entry["classes"].values()) == entry["count"]
+    finally:
+        session.release()
 
 
 def test_mjpeg_session_lifecycle_and_frames(client):

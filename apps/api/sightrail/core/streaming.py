@@ -33,7 +33,7 @@ from ..config import settings
 from ..schemas.base import JobProgress
 from ..schemas.results import ResultPayload
 from .engine import engine
-from .serialize import frame_to_data_url, frame_to_jpeg_bytes, result_to_payload, serialise_names
+from .serialize import class_histogram, frame_to_data_url, frame_to_jpeg_bytes, result_to_payload, serialise_names
 
 # ---------------------------------------------------------------------------
 # solutions catalog
@@ -614,7 +614,9 @@ def mjpeg_frames(session: StreamSession):
                         "frame": session.frames,
                         "count": (payload.detections.count if payload.detections else 0)
                         + (payload.masks.count if payload.masks else 0),
-                        "classes": {},
+                        # This was hardcoded to {}, so every session reported an
+                        # empty per-class breakdown however many objects it found.
+                        "classes": class_histogram(payload),
                         "fps": round(session.fps, 2),
                     }
                 )

@@ -321,9 +321,14 @@ def result_to_payload(
 
 
 def class_histogram(result: ResultPayload) -> dict[str, int]:
-    """Count detections per class name - feeds the UI's summary charts."""
+    """Count detections per class name — feeds the UI's summary charts.
+
+    Masks are included because a segmentation model may report its instances
+    through ``masks`` alone; counting only boxes would show an empty breakdown for
+    detections that are plainly visible in the result.
+    """
     histogram: dict[str, int] = {}
-    for source in (result.detections, result.obb):
+    for source in (result.detections, result.obb, result.masks):
         if source is None:
             continue
         for item in source.items:

@@ -64,6 +64,29 @@ def test_class_histogram_counts_by_name():
     assert serialize.class_histogram(result) == {"person": 2, "car": 1}
 
 
+def test_class_histogram_includes_masks():
+    """A segmentation result reports its instances through ``masks``.
+
+    Counting only boxes returned an empty breakdown for a model that had plainly
+    found objects — the MJPEG session history showed `"classes": {}` on every
+    frame for exactly this reason.
+    """
+    from sightrail.schemas.results import MaskInstance, MaskPayload, ResultPayload
+
+    result = ResultPayload(
+        task=TaskName.SEGMENT,
+        masks=MaskPayload(
+            count=2,
+            items=[
+                MaskInstance(index=0, class_id=0, class_name="person", polygon=[0, 0, 1, 0, 1, 1], point_count=3),
+                MaskInstance(index=1, class_id=2, class_name="car", polygon=[0, 0, 1, 0, 1, 1], point_count=3),
+            ],
+        ),
+    )
+
+    assert serialize.class_histogram(result) == {"person": 1, "car": 1}
+
+
 def test_frame_to_jpeg_bytes_roundtrip():
     import cv2
 

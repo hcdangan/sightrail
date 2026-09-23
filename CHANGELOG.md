@@ -93,6 +93,27 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **`history[].classes` was always empty.** `mjpeg_frames` built each session
+  history entry with a literal `"classes": {}`, so
+  `GET /api/stream/sessions/{id}/stats` reported a per-frame breakdown that could
+  never hold anything — an on-screen count of five objects alongside
+  `"classes": {}`. That was the only place the key was written; the video-job
+  timeline already reported `by_class` correctly. It now calls
+  `class_histogram(payload)`.
+* **`class_histogram` ignored masks**, so a segmentation model counted objects but
+  attributed none of them to a class. Masks now contribute, which is what makes
+  the breakdown correct for `segment` / `instance_segmentation` — the case the
+  empty `classes` was reported from.
+* **Live tracking sent the unresolved device to Ultralytics.**
+  `LiveTracker.__init__` forwarded `device` verbatim into `model.track(...)`, and
+  Ultralytics rejects `auto` with `Invalid CUDA 'device=auto' requested`. The model
+  registry resolves the device for loading, but the tracking call bypassed that
+  translation, so a live-tracking session failed on any host whose `auto` resolves
+  to something else — the default configuration, and every CPU-only machine. It now
+  goes through `engine_device()`, matching what `predict` already did. Found while
+  verifying the `classes` fix: the MJPEG session could not produce a frame at all
+  once a tracker was selected.
+
 * **Fine-tuning crashed on the GPU with "Expected all tensors to be on the same
   device, but found at least two devices, cuda:0 and cpu!".** `engine.train()` loaded
   the checkpoint through the registry with no device, which resolves to the
