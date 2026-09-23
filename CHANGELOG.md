@@ -37,6 +37,60 @@ pinned to it and `npm run version:check` fails the build if they disagree.
   is always possible. A **Branching** section in `docs/DEVELOPMENT.md` documents
   the resulting loop.
 
+### Added
+
+* **CUDA readiness diagnosis.** Selecting `cuda:0` while the installed PyTorch is
+  a CPU-only wheel produced a warning that read like an error and could not be
+  acted on:
+
+  > Needs a CUDA build of PyTorch + a compatible NVIDIA driver. Full-precision
+  > training and inference; enable AMP for the biggest speed-up.
+
+  That text was the CUDA profile's static `requires` list with its capability
+  `notes` appended — the notes are copy describing a *working* GPU, not part of
+  the problem, and neither string can tell the real causes apart. `core/device.py::cuda_state()`
+  now reports which applies, with `verify` commands and ordered `steps`, following
+  the same shape as the Hailo readiness report. It is exposed on
+  `GET /api/system/device-config` as `cuda_state`, mirrored onto each CUDA profile
+  as `state` and into its `detail` (what the device selector renders). The System
+  page gains a **CUDA** panel naming the condition and the fix.
+
+  Reported statuses, each of which needs a different action:
+
+  | Status | Meaning |
+  | --- | --- |
+  | `no-cuda-hardware` | No NVIDIA GPU. Nothing to fix — and crucially, no reinstall advice. |
+  | `unsupported-gpu` | A GPU is present but below sm_75 (Maxwell/Pascal/Volta). No current wheel runs it. |
+  | `cpu-only-torch` | A supported GPU, but this torch was built without CUDA. Reinstall. |
+  | `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it. Wrong index. |
+  | `driver-unavailable` | CUDA build and GPU present, driver too old. |
+
+* **The CUDA wheel index is now derived from the card, not hardcoded.** Blackwell
+  (RTX 50-series, sm_120) requires CUDA 12.8 or newer, so a `cu124` wheel installs
+  cleanly, reports `torch.cuda.is_available() == True`, and then dies at the first
+  kernel launch with *"No kernel image is available for execution on the device"*.
+  Every piece of remediation advice in the repository named `cu124` unconditionally.
+  `cuda_torch_index()` now returns `cu128` for compute capability 10.0+ and `cu124`
+  otherwise, and that value is what the reported `steps`, `torch_index` and the
+  README's CUDA section use. Verified against
+  <https://download.pytorch.org/whl/cu128/torch/>, which publishes
+  `torch-2.14.0+cu128-cp312-win_amd64.whl`.
+
+  The `gpu-not-in-torch-build` check compares the card's compute capability against
+  `torch.cuda.get_arch_list()`. This is the one CUDA failure `is_available()` cannot
+  detect, so a Blackwell machine with a cu124 wheel was previously reported as
+  `ready` and failed later with a confusing kernel error.
+
+  Hardware is probed *before* the wheel: a CPU-only torch reports
+  `device_count() == 0` whether or not a card exists, so testing the build first
+  made every CUDA-less machine look like a reinstall-the-wheel problem — advice
+  that could never succeed on it.
+
+  `test_device.py` covers all six states plus both wheel indexes using a stub torch
+  and a stub card, since a dev box has exactly one GPU and cannot demonstrate the
+  others. The fixture pins a default supported card so the suite does not silently
+  depend on whatever hardware the machine happens to have.
+
 ### Fixed
 
 * **Live webcam inference never sent a single frame to the API.** The client

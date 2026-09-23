@@ -8,6 +8,7 @@ none of the hardware.
 from __future__ import annotations
 
 import platform
+from types import SimpleNamespace
 
 import pytest
 
@@ -122,6 +123,302 @@ def test_cuda_falls_back_to_cpu_without_a_gpu():
         pytest.skip("this host has CUDA, so the fallback path is not exercised")
     assert resolve_device("cuda:0") == "cpu"
     assert engine_device("cuda:0") == "cpu"
+
+
+# ------------------------------------------------------------- cuda readiness
+
+
+class _StubCuda:
+    """A stand-in for ``torch.cuda`` with a fixed availability answer."""
+
+    def __init__(self, *, available: bool, count: int, arch_list: list[str] | None = None) -> None:
+        self._available = available
+        self._count = count
+        self._arch_list = arch_list if arch_list is not None else ["sm_75", "sm_80", "sm_90"]
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def device_count(self) -> int:
+        return self._count
+
+    def get_arch_list(self) -> list[str]:
+        return list(self._arch_list)
+
+
+class _StubTorch:
+    """A torch module whose *build* differs from its *runtime* state.
+
+    This is the distinction the real host cannot show: a CPU-only wheel and a
+    CUDA wheel with no driver both report ``cuda.is_available() == False``, but
+    they need opposite fixes.
+    """
+
+    def __init__(
+        self,
+        *,
+        version: str,
+        cuda_build: str | None,
+        available: bool,
+        count: int = 0,
+        arch_list: list[str] | None = None,
+    ) -> None:
+        self.__version__ = version
+        self.version = SimpleNamespace(cuda=cuda_build)
+        self.cuda = _StubCuda(available=available, count=count, arch_list=arch_list)
+
+
+def _stub_torch(monkeypatch, stub):
+    """Point the device probe at a stub torch, bypassing its import cache."""
+    device_mod.torch_module.cache_clear()
+    monkeypatch.setattr(device_mod, "torch_module", lambda: stub)
+    device_mod.cuda_state.cache_clear()
+    return stub
+
+
+def _clear_cuda_caches() -> None:
+    """Drop the memoised probes, tolerating an already-stubbed replacement.
+
+    `_stub_hardware` may run twice (fixture default, then a test override), and by
+    then `cuda_hardware` is a plain lambda with no `cache_clear`.
+    """
+    for name in ("cuda_state", "cuda_hardware"):
+        clear = getattr(getattr(device_mod, name), "cache_clear", None)
+        if callable(clear):
+            clear()
+
+
+def _stub_hardware(monkeypatch, *, name: str, capability: float, present: bool = True):
+    """Describe a card without needing one installed.
+
+    The checks that matter most — an RTX 50-series that a cu124 wheel cannot run,
+    or a Maxwell card no current build supports — cannot be produced on a dev box.
+    """
+    supported = present and capability >= device_mod._MIN_CUDA_COMPUTE_CAPABILITY
+    facts = {
+        "present": present,
+        "name": name if present else None,
+        "compute_capability": capability if present else None,
+        "driver": "570.00" if present else None,
+        "memory_mb": 16384 if present else None,
+        "supported": supported,
+    }
+    _clear_cuda_caches()
+    monkeypatch.setattr(device_mod, "cuda_hardware", lambda: facts)
+    device_mod.cuda_state.cache_clear()
+    return facts
+
+
+@pytest.fixture
+def with_stub_torch(monkeypatch):
+    """Install a fake torch for the duration of one test.
+
+    `monkeypatch` restores `torch_module` afterwards; `cuda_state` is separately
+    memoised, so its cache must be dropped on the way out or the next test would
+    read this stub's answer.
+
+    The hardware probe is stubbed too, defaulting to a supported Turing-class card:
+    without it these tests would inherit whatever GPU the dev box happens to have,
+    which is exactly the kind of hidden dependence that makes a suite pass on one
+    machine and fail on another. A test that needs a specific card calls
+    `_stub_hardware` again — the later monkeypatch wins.
+    """
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 4090", capability=8.9)
+
+    def apply(stub):
+        return _stub_torch(monkeypatch, stub)
+
+    yield apply
+    device_mod.cuda_state.cache_clear()
+
+
+def test_cuda_state_flags_a_cpu_only_torch_build(with_stub_torch):
+    """A CPU-only wheel can never run CUDA, however good the driver is.
+
+    The advice has to be "reinstall torch", not "check your driver" — the device
+    panel previously showed a static requirements list that could not tell the
+    two apart and sent users to the wrong fix.
+    """
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "cpu-only-torch"
+    assert state["torch_cuda"] is None
+    assert "CPU-only build" in state["summary"]
+    # The fix must name the CUDA index, since that is the actual remediation.
+    assert any("download.pytorch.org" in step["detail"] for step in state["steps"])
+    assert any("torch" in step["title"].lower() for step in state["steps"])
+
+
+def test_cuda_state_distinguishes_a_missing_driver(with_stub_torch):
+    """A CUDA build that sees no device is a driver/toolkit problem, not a build one."""
+    with_stub_torch(_StubTorch(version="2.14.0+cu124", cuda_build="12.4", available=False))
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "driver-unavailable"
+    assert state["torch_cuda"] == "12.4"
+    assert "driver" in state["summary"].lower()
+    assert any("nvidia-smi" in step["detail"] for step in state["steps"])
+    # Reinstalling torch is the wrong advice here, so it must not be offered as
+    # the primary fix (a fallback to an older toolkit is legitimate).
+    assert "CPU-only" not in state["summary"]
+
+
+def test_cuda_state_reports_ready_when_a_device_is_present(with_stub_torch, monkeypatch):
+    # Pin the card and a matching arch list together: the architecture check
+    # compares the two, so a mismatch here would (correctly) not be "ready".
+    with_stub_torch(
+        _StubTorch(
+            version="2.14.0+cu124",
+            cuda_build="12.4",
+            available=True,
+            count=2,
+            arch_list=["sm_75", "sm_80", "sm_86", "sm_90"],
+        )
+    )
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 4090", capability=9.0)
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "ready"
+    assert state["device_count"] == 2
+    assert state["steps"] == []
+
+
+def test_cuda_state_handles_a_missing_torch(monkeypatch):
+    monkeypatch.setattr(device_mod, "torch_module", lambda: None)
+    device_mod.cuda_state.cache_clear()
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "torch-missing"
+    assert state["torch_version"] is None
+    device_mod.cuda_state.cache_clear()
+
+
+def test_cuda_profile_reports_why_it_is_unavailable(with_stub_torch):
+    """The profile shown in the device list must carry the specific cause."""
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+
+    profile = device_mod.device_profile("cuda:0")
+
+    assert profile["available"] is False
+    assert profile["state"] == "cpu-only-torch"
+    # `detail` is what the device selector renders, so it must name the cause.
+    assert "CPU-only build" in profile["detail"]
+
+
+def test_device_config_exposes_cuda_state(with_stub_torch):
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+
+    state = device_mod.device_config()["cuda_state"]
+
+    assert state["status"] == "cpu-only-torch"
+    assert state["steps"], "a blocked CUDA profile must ship remediation steps"
+
+
+# ------------------------------------------------ GPU generations and indexes
+
+
+def test_blackwell_gets_the_cu128_index(with_stub_torch, monkeypatch):
+    """An RTX 50-series card must be sent to cu128, not cu124.
+
+    cu124 installs cleanly on Blackwell and then fails at the first kernel launch
+    with "no kernel image is available", so the wrong index is a real trap. The
+    repository previously hardcoded cu124 in the advice for every card.
+    """
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 5070 Ti", capability=12.0)
+
+    assert device_mod.cuda_torch_index().endswith("/cu128")
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "cpu-only-torch"
+    assert state["torch_index"].endswith("/cu128")
+    assert any("cu128" in step["detail"] for step in state["steps"])
+    assert "5070 Ti" in state["summary"], "naming the card makes the advice verifiable"
+
+
+def test_turing_and_hopper_keep_the_cu124_index(with_stub_torch, monkeypatch):
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 4090", capability=8.9)
+
+    assert device_mod.cuda_torch_index().endswith("/cu124")
+
+
+def test_a_card_no_current_build_supports_is_reported_as_unusable(with_stub_torch, monkeypatch):
+    """Maxwell (sm_50) is outside every current CUDA build.
+
+    The card is *visible*, so a presence-only check passes it and then tells the
+    user to reinstall torch forever. This must instead be reported as a fact about
+    the hardware, with no reinstall advice.
+    """
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce MX130", capability=5.0)
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "unsupported-gpu"
+    assert "5.0" in state["summary"]
+    assert "MX130" in state["summary"]
+    joined = " ".join(step["detail"] for step in state["steps"])
+    assert "download.pytorch.org" not in joined, "no wheel will work, so do not recommend one"
+
+
+def test_a_cuda_build_can_see_a_gpu_it_has_no_kernels_for(with_stub_torch, monkeypatch):
+    """The trap that `is_available()` cannot catch.
+
+    A cu124 wheel on a Blackwell card reports CUDA as available, because the driver
+    handshake succeeds, and then dies at the first kernel launch. Only the compiled
+    architecture list reveals it.
+    """
+    with_stub_torch(
+        _StubTorch(
+            version="2.14.0+cu124",
+            cuda_build="12.4",
+            available=True,
+            count=1,
+            arch_list=["sm_75", "sm_80", "sm_86", "sm_90"],
+        )
+    )
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 5070 Ti", capability=12.0)
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "gpu-not-in-torch-build"
+    assert "sm_120" in state["summary"]
+    assert state["torch_index"].endswith("/cu128")
+    assert any("cu128" in step["detail"] for step in state["steps"])
+
+
+def test_a_matching_arch_list_is_reported_ready(with_stub_torch, monkeypatch):
+    """The same card with a build that lists sm_120 is fine."""
+    with_stub_torch(
+        _StubTorch(
+            version="2.14.0+cu128",
+            cuda_build="12.8",
+            available=True,
+            count=1,
+            arch_list=["sm_75", "sm_90", "sm_100", "sm_120"],
+        )
+    )
+    _stub_hardware(monkeypatch, name="NVIDIA GeForce RTX 5070 Ti", capability=12.0)
+
+    assert device_mod.cuda_state()["status"] == "ready"
+
+
+def test_no_card_is_still_reported_without_a_reinstall(with_stub_torch, monkeypatch):
+    with_stub_torch(_StubTorch(version="2.14.0+cpu", cuda_build=None, available=False))
+    _stub_hardware(monkeypatch, name="none", capability=0.0, present=False)
+
+    state = device_mod.cuda_state()
+
+    assert state["status"] == "no-cuda-hardware"
+    assert state["steps"] == []
+    joined = " ".join(step["detail"] for step in state["steps"])
+    assert "download.pytorch.org" not in joined
 
 
 def test_auto_never_fails():

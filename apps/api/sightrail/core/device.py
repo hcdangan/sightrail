@@ -25,6 +25,7 @@ import importlib
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from functools import lru_cache
 from typing import Any
@@ -105,6 +106,412 @@ def cuda_available() -> bool:
         return bool(torch and torch.cuda.is_available() and torch.cuda.device_count() > 0)
     except Exception:  # pragma: no cover
         return False
+
+
+#: PyTorch wheel indexes, by GPU generation.
+#:
+#: Blackwell needs CUDA 12.8+; Turing..Hopper are served by cu124. Verified against
+#: https://download.pytorch.org/whl/cu128/torch/ (2.14.0 ships a cp312 win_amd64
+#: wheel). Getting this wrong installs a wheel that succeeds and then fails at the
+#: first kernel launch, so the index is derived from the detected card.
+_CUDA_TORCH_INDEX_DEFAULT = "https://download.pytorch.org/whl/cu124"
+_CUDA_TORCH_INDEX_BLACKWELL = "https://download.pytorch.org/whl/cu128"
+
+
+def cuda_torch_index() -> str:
+    """The PyTorch wheel index that actually supports the installed GPU.
+
+    A single hardcoded index is wrong for most machines: Blackwell (RTX 50-series,
+    sm_120) needs CUDA 12.8 or newer, and a cu124 wheel installs cleanly and then
+    fails at the first kernel launch with "no kernel image is available". Turing
+    through Hopper are covered by cu124. Cards below sm_75 have no current wheel
+    at all.
+    """
+    capability = cuda_hardware()["compute_capability"]
+    if capability is None:
+        return _CUDA_TORCH_INDEX_DEFAULT
+    if capability >= 10.0:  # Blackwell
+        return _CUDA_TORCH_INDEX_BLACKWELL
+    return _CUDA_TORCH_INDEX_DEFAULT
+
+
+def _pip_cuda_install(index_url: str) -> str:
+    """The reinstall command for this platform, as copy-pasteable text."""
+    return (
+        "uv pip install --python .venv/Scripts/python.exe torch torchvision "
+        f"--index-url {index_url}\n"
+        "# macOS / Linux:\n"
+        f"uv pip install --python .venv/bin/python torch torchvision --index-url {index_url}"
+    )
+
+
+#: Lowest compute capability current CUDA toolkits (13.x) compile for.
+#:
+#: Maxwell (sm_50), Pascal (sm_60) and Volta (sm_70) were dropped: CUDA 13.x
+#: covers Turing (sm_75) and newer. A card below this cannot run a current CUDA
+#: build at all, so "reinstall torch from the CUDA index" is advice that fails.
+#: https://dev-discuss.pytorch.org/t/notice-cuda-12-6-wheels-will-no-longer-be-published-from-pytorch-2-15-drops-maxwell-pascal-volta/3432
+_MIN_CUDA_COMPUTE_CAPABILITY = 7.5
+
+_NVIDIA_QUERY = "name,compute_cap,driver_version,memory.total"
+
+
+def _run_nvidia_smi(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """Run ``nvidia-smi`` with fixed argv; ``None`` when it is unusable."""
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None
+    try:
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [executable, *args],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - driver quirks
+        return None
+
+
+def _parse_compute_capability(value: str) -> float | None:
+    """``"5.0"`` → ``5.0``; tolerant of the ``N/A`` an old driver may report."""
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+@lru_cache(maxsize=1)
+def cuda_hardware() -> dict[str, Any]:
+    """What NVIDIA hardware and driver are actually present.
+
+    Describes the *card*, independently of torch. This is the question that has to
+    be answered before recommending a torch reinstall: a CPU-only torch build
+    reports ``device_count() == 0`` whether or not a card exists, and a card can be
+    present yet too old for any current CUDA build.
+    """
+    facts: dict[str, Any] = {
+        "present": False,
+        "name": None,
+        "compute_capability": None,
+        "driver": None,
+        "memory_mb": None,
+        "supported": False,
+    }
+
+    # torch's own view is authoritative when it can see devices.
+    torch = torch_module()
+    if torch is not None and cuda_available():
+        facts["present"] = True
+        facts["supported"] = True
+        with contextlib.suppress(Exception):
+            facts["name"] = torch.cuda.get_device_name(0)
+        with contextlib.suppress(Exception):
+            major, minor = torch.cuda.get_device_capability(0)
+            facts["compute_capability"] = float(f"{major}.{minor}")
+        with contextlib.suppress(Exception):
+            facts["memory_mb"] = int(torch.cuda.get_device_properties(0).total_memory / (1024**2))
+        return facts
+
+    completed = _run_nvidia_smi([f"--query-gpu={_NVIDIA_QUERY}", "--format=csv,noheader"])
+    if completed is None or completed.returncode != 0:
+        return facts
+
+    rows = [row for row in completed.stdout.strip().splitlines() if row.strip()]
+    if not rows:
+        return facts
+
+    # The first GPU decides: the UI offers a single CUDA profile by default.
+    fields = [part.strip() for part in rows[0].split(",")]
+    facts["present"] = True
+    facts["name"] = fields[0] or None
+    if len(fields) > 1:
+        facts["compute_capability"] = _parse_compute_capability(fields[1])
+    if len(fields) > 2 and fields[2] and fields[2].upper() != "N/A":
+        facts["driver"] = fields[2]
+    if len(fields) > 3:
+        with contextlib.suppress(ValueError):
+            facts["memory_mb"] = int("".join(ch for ch in fields[3] if ch.isdigit()) or 0)
+
+    capability = facts["compute_capability"]
+    # Unknown capability is treated as supported: better to let the user try than
+    # to declare a card unusable on the strength of an absent number.
+    facts["supported"] = capability is None or capability >= _MIN_CUDA_COMPUTE_CAPABILITY
+    return facts
+
+
+def nvidia_driver_version() -> str | None:
+    """The installed NVIDIA driver version, or ``None`` when there is no GPU."""
+    return cuda_hardware()["driver"]
+
+
+def nvidia_hardware_present() -> bool:
+    """True when an NVIDIA GPU is visible to this machine."""
+    return bool(cuda_hardware()["present"])
+
+
+@lru_cache(maxsize=1)
+def cuda_state() -> dict[str, Any]:
+    """Why CUDA is (or is not) usable, in the user's terms.
+
+    ``cuda_available()`` returning False is not one condition but several, and
+    they need *opposite* fixes:
+
+    * **no NVIDIA card at all** — nothing to fix. Reinstalling torch for CUDA
+      would install a build that still finds no device, so the honest answer is
+      "this machine has no CUDA GPU; use CPU, or MPS on Apple silicon";
+    * the installed torch is a **CPU-only wheel** — a card *is* present, but this
+      build has no CUDA compiled in, so torch must be reinstalled;
+    * torch **is** a CUDA build but sees no usable device — the driver is missing
+      or older than the toolkit torch was built against.
+
+    Hardware presence is deliberately checked *first*. A CPU-only torch reports
+    ``device_count() == 0`` regardless of whether a card exists, so testing the
+    wheel before the hardware makes every CUDA-less machine look like a
+    reinstall-the-wheel problem — advice that can never succeed on it.
+    """
+    torch = torch_module()
+    cuda_build = getattr(getattr(torch, "version", None), "cuda", None)
+    hardware = cuda_hardware()
+    driver = hardware["driver"]
+    capability = hardware["compute_capability"]
+
+    if torch is None:
+        return {
+            "status": "torch-missing",
+            "summary": "PyTorch is not installed in the API environment.",
+            "torch_version": None,
+            "torch_cuda": None,
+            "hardware": hardware,
+            "driver": driver,
+            "compute_capability": capability,
+            "device_count": 0,
+            "verify": [],
+            "steps": [
+                {
+                    "title": "Install the API requirements",
+                    "detail": "npm run bootstrap",
+                }
+            ],
+        }
+
+    version = getattr(torch, "__version__", None)
+    cuda_build = getattr(getattr(torch, "version", None), "cuda", None)
+    count = 0
+    with contextlib.suppress(Exception):
+        count = int(torch.cuda.device_count())
+
+    # A CUDA build can see a GPU it has no kernels for. `is_available()` returns
+    # True (the driver handshake succeeds) and inference then dies with "no kernel
+    # image is available". Checking the compiled architecture list is the only way
+    # to tell that apart from a working setup — the exact case of a cu124 wheel on
+    # a Blackwell card.
+    if cuda_available():
+        arch_list: list[str] = []
+        with contextlib.suppress(Exception):
+            arch_list = [str(arch) for arch in torch.cuda.get_arch_list()]
+        if arch_list and capability is not None:
+            wanted = f"sm_{int(capability * 10)}"
+            if wanted not in arch_list:
+                index_url = cuda_torch_index()
+                return {
+                    "status": "gpu-not-in-torch-build",
+                    "summary": (
+                        f"PyTorch can see the GPU ({hardware['name']}) but this build has no kernels for it: "
+                        f"it was compiled for {', '.join(arch_list)} and the card needs {wanted}. Inference "
+                        "fails at the first kernel launch. Reinstall torch from a CUDA index that covers this "
+                        "card — Blackwell (RTX 50-series) needs cu128 or newer."
+                    ),
+                    "torch_version": version,
+                    "torch_cuda": cuda_build,
+                    "hardware": hardware,
+                    "driver": driver,
+                    "compute_capability": capability,
+                    "arch_list": arch_list,
+                    "torch_index": index_url,
+                    "device_count": count,
+                    "verify": [
+                        'python -c "import torch; print(torch.cuda.get_arch_list())"',
+                        f"# {wanted} must appear in that list",
+                    ],
+                    "steps": [
+                        {
+                            "title": "Install a torch built for this GPU",
+                            "detail": _pip_cuda_install(index_url),
+                        },
+                        {
+                            "title": "Restart the API",
+                            "detail": "The new build is only picked up by a fresh process.",
+                        },
+                    ],
+                }
+
+    if cuda_available():
+        return {
+            "status": "ready",
+            "summary": f"CUDA is available ({count} device{'s' if count != 1 else ''}).",
+            "torch_version": version,
+            "torch_cuda": cuda_build,
+            "hardware": hardware,
+            "driver": driver,
+            "compute_capability": capability,
+            "device_count": count,
+            "verify": ['python -c "import torch; print(torch.cuda.get_device_name(0))"'],
+            "steps": [],
+        }
+
+    # No card at all: a fact about the machine, not a misconfiguration. Saying
+    # "reinstall torch" here would be advice that cannot succeed.
+    if not hardware["present"]:
+        return {
+            "status": "no-cuda-hardware",
+            "summary": (
+                "This machine has no NVIDIA GPU, so CUDA is not an option here. "
+                "CPU runs every mode; on Apple silicon use MPS."
+            ),
+            "torch_version": version,
+            "torch_cuda": cuda_build,
+            "hardware": hardware,
+            "driver": None,
+            "compute_capability": None,
+            "device_count": 0,
+            "verify": [
+                "nvidia-smi",
+                "# 'command not found' or 'No devices were found' confirms there is no NVIDIA GPU",
+            ],
+            "steps": [],
+        }
+
+    # A card that is present but older than any current CUDA build supports. This
+    # is the case that makes a plain "reinstall torch" wrong: the card is visible,
+    # so hardware detection alone would clear it, yet no published wheel runs it.
+    if not hardware["supported"]:
+        return {
+            "status": "unsupported-gpu",
+            "summary": (
+                f"The installed GPU ({hardware['name']}) is compute capability {capability}, and current CUDA "
+                f"toolkits compile for {_MIN_CUDA_COMPUTE_CAPABILITY} and above, so no published CUDA build of "
+                "PyTorch will run on it. Use CPU here."
+            ),
+            "torch_version": version,
+            "torch_cuda": cuda_build,
+            "hardware": hardware,
+            "driver": driver,
+            "compute_capability": capability,
+            "device_count": 0,
+            "verify": [
+                f"nvidia-smi --query-gpu=name,compute_cap --format=csv   # reports {capability}",
+                "# Anything below 7.5 (Turing) is outside current CUDA builds",
+            ],
+            "steps": [
+                {
+                    "title": "Use CPU (recommended)",
+                    "detail": (
+                        "Leave SIGHTRAIL_DEVICE=cpu. Every mode works; inference on a small model is "
+                        "roughly 100-200 ms/frame, and training is slower but functional."
+                    ),
+                },
+                {
+                    "title": "If you need GPU inference, run it elsewhere",
+                    "detail": (
+                        "Any machine with a Turing-or-newer NVIDIA GPU (or an Apple silicon Mac via MPS) "
+                        "will run this unchanged: the same repository, the same .env, SIGHTRAIL_DEVICE=cuda:0. "
+                        "You can also offload just the heavy jobs by exporting a model and running it on "
+                        "another host."
+                    ),
+                },
+                {
+                    "title": "Building an old PyTorch from source is not worth it",
+                    "detail": (
+                        "Prebuilt Maxwell/Pascal/Volta CUDA wheels ended at PyTorch 2.14 with CUDA 12.6, and "
+                        "Ultralytics requires a recent torch. Supporting this card would mean compiling "
+                        "PyTorch yourself and pinning the whole stack back, with no guarantee Ultralytics "
+                        "still accepts it."
+                    ),
+                },
+            ],
+        }
+
+    if not cuda_build:
+        index_url = cuda_torch_index()
+        return {
+            "status": "cpu-only-torch",
+            "summary": (
+                f"An NVIDIA GPU ({hardware['name']}, compute {capability}) is present and supported, but the "
+                f"installed PyTorch ({version}) is a CPU-only build — it was compiled without CUDA, so the GPU "
+                "cannot be used. Reinstall torch from the CUDA index below."
+            ),
+            "torch_version": version,
+            "torch_cuda": None,
+            "hardware": hardware,
+            "driver": driver,
+            "compute_capability": capability,
+            "torch_index": index_url,
+            "device_count": 0,
+            "verify": [
+                'python -c "import torch; print(torch.__version__, torch.version.cuda)"',
+                "# torch.version.cuda must not be None",
+            ],
+            "steps": [
+                {
+                    "title": "Reinstall PyTorch with CUDA support",
+                    "detail": _pip_cuda_install(index_url),
+                },
+                {
+                    "title": "Confirm the build now reports CUDA",
+                    "detail": 'python -c "import torch; print(torch.version.cuda, torch.cuda.is_available())"',
+                },
+                {
+                    "title": "Restart the API and switch the device",
+                    "detail": (
+                        "Set SIGHTRAIL_DEVICE=cuda:0 in .env (or pick CUDA in the UI), then restart "
+                        "so the new torch is loaded."
+                    ),
+                },
+            ],
+        }
+
+    return {
+        "status": "driver-unavailable",
+        "summary": (
+            f"An NVIDIA GPU is visible to the system, and PyTorch is a CUDA build (cu{cuda_build}), but torch "
+            "cannot use it. The driver is usually older than the toolkit torch was built against."
+        ),
+        "torch_version": version,
+        "torch_cuda": cuda_build,
+        "hardware": True,
+        "driver": driver,
+        "device_count": 0,
+        "verify": [
+            "nvidia-smi",
+            '# then: python -c "import torch; print(torch.cuda.is_available())"',
+        ],
+        "steps": [
+            {
+                "title": "Check the driver sees the GPU",
+                "detail": (
+                    "nvidia-smi\n# Should list the card and the driver version. If this fails, install "
+                    "or update the NVIDIA driver."
+                ),
+            },
+            {
+                "title": "Check the driver is new enough",
+                "detail": (
+                    f"The installed torch was built against CUDA {cuda_build}. NVIDIA drivers are backward "
+                    "compatible, so the driver must be at least as new as that toolkit. Check the requirement "
+                    "at https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/"
+                ),
+            },
+            {
+                "title": "Or install a torch built for an older toolkit",
+                "detail": (
+                    "If the driver cannot be upgraded, install a matching wheel, e.g. cu121:\n"
+                    "uv pip install --python .venv/Scripts/python.exe torch torchvision "
+                    "--index-url https://download.pytorch.org/whl/cu121"
+                ),
+            },
+        ],
+    }
 
 
 def mps_available() -> bool:
@@ -362,6 +769,7 @@ def device_profile(device_id: str | None = None) -> dict[str, Any]:
     torch = torch_module()
     if value.startswith("cuda"):
         available = cuda_available()
+        state = cuda_state()
         detail = "no CUDA device visible"
         if available and torch is not None:
             index = int(value.split(":", 1)[1]) if ":" in value else 0
@@ -372,6 +780,18 @@ def device_profile(device_id: str | None = None) -> dict[str, Any]:
                 )
             except Exception:  # pragma: no cover - driver quirks
                 detail = "CUDA device"
+        elif not available:
+            # Say which of the several CUDA failure modes this is, rather than a
+            # generic requirements list the user cannot act on.
+            detail = state["summary"]
+        # With no card installed, "a CUDA build of PyTorch" is not the missing
+        # piece — the GPU is. Naming the requirements in that order invites a
+        # reinstall that cannot help.
+        requires = (
+            ["an NVIDIA GPU in this machine"]
+            if state["status"] == "no-cuda-hardware"
+            else ["a CUDA build of PyTorch", "a compatible NVIDIA driver"]
+        )
         return {
             "id": value,
             "label": value.upper().replace("CUDA:", "CUDA "),
@@ -380,10 +800,10 @@ def device_profile(device_id: str | None = None) -> dict[str, Any]:
             "detail": detail,
             "capabilities": list(ALL_MODES),
             "supports_training": True,
-            "requires": ["a CUDA build of PyTorch", "a compatible NVIDIA driver"],
+            "requires": requires,
             "notes": "Full-precision training and inference; enable AMP for the biggest speed-up.",
+            "state": state["status"],
         }
-
     return {
         "id": value,
         "label": value.upper(),
@@ -439,6 +859,9 @@ def device_config() -> dict[str, Any]:
         "resolved": resolve_device(settings.device),
         "engine_device": engine_device(settings.device),
         "devices": list_devices(),
+        #: CUDA readiness, the counterpart to ``hailo`` below. ``None``-safe to
+        #: render: the UI shows it only when CUDA cannot be used.
+        "cuda_state": cuda_state(),
         "hailo": {
             "architecture": settings.hailo_arch,
             "architectures": [{"id": arch, **meta} for arch, meta in HAILO_ARCHITECTURES.items()],

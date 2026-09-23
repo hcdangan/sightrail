@@ -208,6 +208,7 @@ Per-format options surfaced contextually: `half`, `int8`, `dynamic`, `simplify`,
 | Device switch by one config variable (`SIGHTRAIL_DEVICE`) | `.env` / `.env.example`, `core/device.py` |
 | Per-session device override from the UI | header selector, `components/system/DeviceSelect.tsx` |
 | Device profiles with capability lists (Hailo cannot train) | `/api/system/devices`, `/system` |
+| **CUDA readiness diagnosis** — CPU-only torch vs missing driver, with fix steps | `core/device.py::cuda_state`, `/system` → *CUDA* panel |
 | **Hailo accelerator inference** (Hailo-8/8L/10H/15H via HailoRT) | `core/hailo.py`, `hailo` device profile |
 | **Hailo HEF export** with architecture selection | `/export` → format *Hailo*, `hailo_arch` |
 | Hailo readiness checklist and copy-paste setup steps | `/system` → *Hailo accelerator* panel |

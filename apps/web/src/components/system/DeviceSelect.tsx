@@ -103,7 +103,20 @@ export function DeviceSelect({
         <p className="flex items-start gap-1.5 rounded-lg border border-warning-500/40 bg-warning-500/10 p-2 text-[11px] leading-relaxed text-warning-300">
           <AlertTriangle className="mt-0.5 size-3 shrink-0" />
           <span>
-            Needs {current.requires.join(' + ')}. {current.notes}
+            {/*
+              The profile carries a static requirements list ("a CUDA build of
+              PyTorch + a compatible NVIDIA driver") plus its capability notes.
+              Appending the notes read as part of the error — and the requirements
+              cannot distinguish a CPU-only torch, which no driver can fix, from a
+              missing driver. When the API supplies a specific cause, lead with it
+              and send the reader to the System page for the fix steps.
+            */}
+            {current.detail}
+            {current.state ? (
+              <span className="mt-1 block text-slate-400">See System → Compute device for the fix.</span>
+            ) : (
+              <> Needs {current.requires.join(' + ')}.</>
+            )}
           </span>
         </p>
       )}

@@ -182,13 +182,57 @@ in the header or on **System → Compute device** without editing any file.
 
 #### CUDA
 
-The default install pulls the CPU build of PyTorch. For CUDA, reinstall torch
-from the CUDA index before installing the API requirements:
+The default install pulls the CPU build of PyTorch. Reinstall torch from the CUDA
+index that matches your GPU — **the index is not interchangeable**:
+
+| GPU | Compute capability | Index |
+| --- | --- | --- |
+| RTX 50-series (Blackwell) | sm_120 | `cu128` |
+| RTX 20/30/40-series, GTX 16-series (Turing → Ada) | sm_75 – sm_89 | `cu124` |
+| Datacentre A100/H100 | sm_80 / sm_90 | `cu124` |
+| Maxwell / Pascal / Volta (e.g. GTX 9xx, MX130) | below sm_75 | none — no current wheel supports these |
 
 ```bash
+# RTX 50-series (Blackwell)
+uv pip install --python .venv/Scripts/python.exe torch torchvision \
+  --index-url https://download.pytorch.org/whl/cu128
+
+# Everything Turing-and-newer up to Hopper
 uv pip install --python .venv/Scripts/python.exe torch torchvision \
   --index-url https://download.pytorch.org/whl/cu124
 ```
+
+Installing the wrong one is a trap: a `cu124` wheel on an RTX 50-series card
+installs cleanly and reports `torch.cuda.is_available() == True`, then dies at the
+first kernel launch with *"no kernel image is available for execution on the
+device"*. Check the architecture list to confirm a build covers your card:
+
+```bash
+.venv\Scripts\python.exe -c "import torch; print(torch.cuda.get_arch_list())"
+# sm_120 must appear for a Blackwell card
+```
+
+Setting `SIGHTRAIL_DEVICE=cuda:0` is **not enough on its own**. That variable
+selects a GPU at run time; if the installed torch has no CUDA support compiled in,
+there is no GPU to select and Sightrail falls back to CPU. If CUDA still does not
+engage, open **System → Compute device**, which names the exact condition:
+
+| Reported | What it means | Fix |
+| --- | --- | --- |
+| `no-cuda-hardware` | No NVIDIA GPU in this machine | None needed — CPU runs every mode. Nothing to reinstall. |
+| `unsupported-gpu` | A GPU is present but older than any current CUDA build (below sm_75) | Use CPU. No published wheel will run it. |
+| `cpu-only-torch` | A supported GPU is present, but this torch was built without CUDA | Reinstall from the index above for your card. |
+| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it | Wrong index — e.g. `cu124` on Blackwell. Reinstall from the right one. |
+| `driver-unavailable` | CUDA build present, GPU visible, driver too old | Update the NVIDIA driver, or use a wheel for an older toolkit. |
+
+Confirm the active device and the reason at any time:
+
+```bash
+curl http://127.0.0.1:8000/api/system/device-config
+```
+
+`resolved` is what inference actually uses; `cuda_state.status` explains why, when
+it is not CUDA.
 
 #### Hailo (Raspberry Pi 5 + AI Kit / AI HAT, Hailo-8)
 
@@ -339,6 +383,7 @@ engine tests that download weights and train are marked `integration`.
 | Inference on CPU is slow | Expected — a 640px nano model is ~100–200 ms/frame on a modern CPU. Use a CUDA device or lower the image size. |
 | Camera never starts | Browsers only expose `getUserMedia` on `localhost`/`127.0.0.1` or HTTPS. Use the dev server URL directly. |
 | `torch` install fails on Python 3.13+ | Create the venv with 3.12: `uv venv --python 3.12 .venv` |
+| `SIGHTRAIL_DEVICE=cuda:0` still runs on CPU | The device switch chooses a GPU; it cannot add CUDA to a CPU-only torch. **System → Compute device** names the cause — `cpu-only-torch` (reinstall torch from the CUDA index, see [CUDA](#cuda)) or `driver-unavailable` (run `nvidia-smi`, then update the driver). |
 | Export says *deps missing* | Install the backend package for that format, e.g. `uv pip install onnx onnxruntime` |
 | Hailo export refused | HEF compilation needs the Dataflow Compiler on Linux x86_64; the UI lists every unmet requirement |
 | First training run is slow | Ultralytics downloads the dataset archive on first use; later runs reuse the cache. |

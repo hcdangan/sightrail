@@ -20,6 +20,8 @@ export interface DeviceProfile {
   supports_training: boolean;
   requires: string[];
   notes: string;
+  /** CUDA only: which specific condition blocks it (`cpu-only-torch`, …). */
+  state?: CudaStateName;
   /** `auto` only: what the profile currently resolves to. */
   resolves_to?: string;
   /** Hailo only: the discovered HEF. */
@@ -31,6 +33,31 @@ export interface DeviceProfile {
     compiler: boolean;
     model: boolean;
   };
+}
+
+/**
+ * Why CUDA is or is not usable.
+ *
+ * `cuda_available()` being false is several different problems with opposite
+ * fixes, so the API reports which one applies instead of a generic requirements
+ * list. `cpu-only-torch` in particular cannot be fixed by touching a driver.
+ */
+export type CudaStateName = 'ready' | 'torch-missing' | 'cpu-only-torch' | 'driver-unavailable';
+
+export interface CudaSetupStep {
+  title: string;
+  detail: string;
+}
+
+export interface CudaState {
+  status: CudaStateName;
+  summary: string;
+  torch_version: string | null;
+  /** The CUDA toolkit torch was built against; `null` for a CPU-only wheel. */
+  torch_cuda: string | null;
+  device_count: number;
+  verify: string[];
+  steps: CudaSetupStep[];
 }
 
 export interface HailoArchitecture {
@@ -69,6 +96,8 @@ export interface DeviceConfig {
   resolved: string;
   engine_device: string;
   devices: DeviceProfile[];
+  /** CUDA readiness — the counterpart to `hailo_state` below. */
+  cuda_state: CudaState;
   hailo: {
     architecture: string;
     architectures: HailoArchitecture[];

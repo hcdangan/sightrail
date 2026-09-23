@@ -72,13 +72,21 @@ requirements are the useful information.
 
 ### `GET /api/system/device-config`
 Everything needed to render the device switch: the active resolution, all
-profiles, the Hailo state and a copy-pasteable `.env` snippet.
+profiles, the CUDA and Hailo readiness states, and a copy-pasteable `.env`
+snippet.
 
 ```json
 {
   "env_var": "SIGHTRAIL_DEVICE",
   "configured": "cpu", "requested": "cpu", "resolved": "cpu", "engine_device": "cpu",
-  "devices": [ /* as above */ ],
+  "devices": [ /* as above; each CUDA profile also carries "state" */ ],
+  "cuda_state": {
+    "status": "cpu-only-torch",
+    "summary": "The installed PyTorch (2.14.0+cpu) is a CPU-only build — it was compiled without CUDA, so no driver can enable the GPU. Reinstall it from the CUDA index.",
+    "torch_version": "2.14.0+cpu", "torch_cuda": null, "device_count": 0,
+    "verify": ["python -c \"import torch; print(torch.__version__, torch.version.cuda)\""],
+    "steps": [{ "title": "Reinstall PyTorch with CUDA support", "detail": "uv pip install …" }]
+  },
   "hailo": {
     "architecture": "hailo8l",
     "architectures": [{ "id": "hailo8l", "label": "Hailo-8L (13 TOPS)",
@@ -92,6 +100,34 @@ profiles, the Hailo state and a copy-pasteable `.env` snippet.
   "hailo_state": { /* as /api/system/hailo */ }
 }
 ```
+
+#### Why CUDA is unavailable
+
+`cuda_state.status` names the condition. These look identical from the outside —
+most report `torch.cuda.is_available() == false` — but need different (or no) fixes:
+
+| Status | Meaning | Fix |
+| --- | --- | --- |
+| `ready` | A usable CUDA device is present | — |
+| `torch-missing` | PyTorch is not installed | `npm run bootstrap` |
+| `no-cuda-hardware` | No NVIDIA GPU in this machine | None — CPU runs every mode |
+| `unsupported-gpu` | A GPU is present but below sm_75 (Maxwell/Pascal/Volta) | None; no current wheel supports it |
+| `cpu-only-torch` | A supported GPU is present, but torch was built without CUDA (`torch.version.cuda` is `null`) | Reinstall from the index for that card |
+| `gpu-not-in-torch-build` | Torch sees the GPU but has no kernels for it (`torch.cuda.get_arch_list()` lacks the card's `sm_`) | Wrong index — e.g. `cu124` on Blackwell; use `cu128` |
+| `driver-unavailable` | CUDA build present and GPU visible, but torch cannot use it | Update the driver, or use a wheel for an older toolkit |
+
+A CUDA profile carries the same value as `state`, and its `detail` repeats the
+summary so the device selector can show the cause without a second request.
+
+`cuda_state.torch_index` is the wheel index that suits the detected card — `cu124`
+up to Hopper, `cu128` for Blackwell (sm_120+), which needs CUDA 12.8 or newer. It
+is derived from the card's compute capability rather than hardcoded, because a
+`cu124` wheel installs cleanly on an RTX 50-series and then fails at the first
+kernel launch.
+
+Each non-ready status also returns `verify` (commands to confirm the diagnosis)
+and `steps` (the ordered fix), rendered by **System → Compute device**. Statuses
+where no fix exists return no steps rather than advice that cannot work.
 
 ### `GET /api/system/hailo`
 Hailo readiness with ordered setup steps.
