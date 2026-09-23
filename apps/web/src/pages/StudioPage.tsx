@@ -304,8 +304,8 @@ export function ClientCameraView({
     return () => cancelAnimationFrame(frameHandle);
   }, [measuring, captureFrame, sendFrame]);
 
-  // The boxes come back in the analysed frame's pixel space, so they have to be
-  // scaled to whatever size the video element actually renders at.
+  // The camera's intrinsic size, used for the viewfinder's aspect ratio and for
+  // the ROI's `frame_shape`. Boxes deliberately do *not* use it — see below.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || status !== 'streaming') return;
@@ -325,10 +325,12 @@ export function ClientCameraView({
   }, [status]);
 
   const result = live.last?.result ?? null;
-  const boxes = useMemo(
-    () => overlayBoxes(result, mediaSize?.width ?? 0, mediaSize?.height ?? 0, settings.showLabels),
-    [result, mediaSize, settings.showLabels],
-  );
+  // Normalised to the analysed frame, so the overlay scales them against its own
+  // rendered size. Scaling from the camera's resolution instead is what put every
+  // box to the left of its object, and made the size of the error depend on the
+  // webcam: `captureFrame` caps the frame it sends at 960px wide, which matches a
+  // 640x480 camera by accident and no other resolution at all.
+  const boxes = useMemo(() => overlayBoxes(result, settings.showLabels), [result, settings.showLabels]);
 
   return (
     <>

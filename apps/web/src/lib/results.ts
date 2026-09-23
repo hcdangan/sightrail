@@ -41,7 +41,11 @@ export function classEntries(names: Record<string, string> | undefined, limit = 
 }
 
 /**
- * A rectangle (or polygon edge set) ready to draw over live media.
+ * A detection box ready to draw over live media.
+ *
+ * Coordinates are **normalised to 0..1 of the analysed frame**, not pixels, and
+ * the overlay multiplies them by its own rendered size. That indirection is what
+ * keeps a 640x480 webcam, a 1280x720 one and a 4K one all correct on any layout.
  *
  * Lives here rather than next to the canvas component so `lib/` does not have to
  * import from `components/`; the overlay imports it instead.
@@ -57,33 +61,30 @@ export interface OverlayBox {
 }
 
 /**
- * Detection geometry scaled from the frame the model saw to the frame on screen.
+ * Detection geometry as fractions of the analysed frame, ready for the overlay.
  *
- * These are three different sizes and conflating them is what makes an overlay
- * look detached from the video:
+ * Three different sizes are in play here, and conflating any two of them is what
+ * puts a box beside the object instead of on it:
  *
- *  - the **displayed** element, which the browser letterboxes,
- *  - the **captured** frame the browser sent (capped at 960px wide), and
- *  - the **analysed** frame, `result.original_shape`, which is what `xyxy` is in.
+ *  - the **analysed** frame, `result.original_shape`, which is what `xyxy` is in,
+ *  - the **camera's** resolution (`videoWidth`/`videoHeight`), which is unrelated
+ *    to the above — `useCamera` caps the frame it captures at 960px wide, so the
+ *    two agree at 640x480 and diverge at every other webcam resolution,
+ *  - the **rendered** size, which depends on the layout and not on the camera.
  *
- * `displayWidth` here is the *media's* rendered size, not the wrapper's, so the
- * caller must have already accounted for letterboxing.
+ * Normalising by the analysed frame and leaving the display scale to
+ * `CanvasOverlay` (which measures itself) is what makes this independent of both.
+ * The previous version took a display size and scaled straight to pixels, so it
+ * silently assumed those pixels were the camera's — every box landed short of the
+ * object on a 640-wide webcam and past it on a 1280-wide one.
  */
-export function overlayBoxes(
-  result: ResultPayload | null | undefined,
-  displayWidth: number,
-  displayHeight: number,
-  showLabels = true,
-): OverlayBox[] {
-  if (!result || displayWidth <= 0 || displayHeight <= 0) return [];
+export function overlayBoxes(result: ResultPayload | null | undefined, showLabels = true): OverlayBox[] {
+  if (!result) return [];
 
   const [frameHeight, frameWidth] = result.original_shape ?? [];
-  // Without the analysed size there is nothing to scale against, and guessing
+  // Without the analysed size there is nothing to normalise against, and guessing
   // would misplace every box — so draw nothing rather than something wrong.
   if (!frameWidth || !frameHeight) return [];
-
-  const scaleX = displayWidth / frameWidth;
-  const scaleY = displayHeight / frameHeight;
 
   const items: BoxItem[] = [...(result.detections?.items ?? []), ...(result.obb?.items ?? [])];
   return items.map((item) => {
@@ -96,10 +97,10 @@ export function overlayBoxes(
       .filter(Boolean)
       .join(' ');
     return {
-      x1: x1 * scaleX,
-      y1: y1 * scaleY,
-      x2: x2 * scaleX,
-      y2: y2 * scaleY,
+      x1: x1 / frameWidth,
+      y1: y1 / frameHeight,
+      x2: x2 / frameWidth,
+      y2: y2 / frameHeight,
       label: showLabels ? label : undefined,
       color: classColor(item.class_id),
       trackId: item.track_id ?? null,

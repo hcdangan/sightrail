@@ -43,24 +43,46 @@ function resultWithBox(originalShape: [number, number], xyxy: number[]): ResultP
 }
 
 describe('overlayBoxes', () => {
-  it('scales geometry from the analysed frame to the displayed frame', () => {
-    // The browser may be showing a 640-wide preview of a frame the model saw at
-    // 1280 wide; every coordinate has to be halved.
-    const boxes = overlayBoxes(resultWithBox([720, 1280], [100, 200, 300, 400]), 640, 360);
+  it('normalises geometry against the analysed frame', () => {
+    // A 1280x720 frame the model saw. The overlay scales these against whatever
+    // size it renders at, so none of this depends on the display or the camera.
+    const boxes = overlayBoxes(resultWithBox([720, 1280], [100, 200, 300, 400]));
 
     expect(boxes).toHaveLength(1);
-    expect(boxes[0]).toMatchObject({ x1: 50, y1: 100, x2: 150, y2: 200 });
+    expect(boxes[0].x1).toBeCloseTo(100 / 1280);
+    expect(boxes[0].y1).toBeCloseTo(200 / 720);
+    expect(boxes[0].x2).toBeCloseTo(300 / 1280);
+    expect(boxes[0].y2).toBeCloseTo(400 / 720);
+  });
+
+  it('gives the same box for the same scene at any webcam resolution', () => {
+    // The same object filling the middle of the frame at 640x480 and at 1920x1080
+    // must produce identical geometry: the overlay cannot know the resolution, and
+    // must not need to. `useCamera` caps the captured frame at 960px wide, so the
+    // analysed frame is a third size again — a 640-wide camera matches it by
+    // accident and no other resolution does, which is what shifted the boxes.
+    const qvga = overlayBoxes(resultWithBox([480, 640], [64, 48, 320, 240]));
+    const fullHd = overlayBoxes(resultWithBox([1080, 1920], [192, 108, 960, 540]));
+
+    expect(qvga[0]).toMatchObject({ x1: 0.1, y1: 0.1, x2: 0.5, y2: 0.5 });
+    expect(fullHd[0]).toMatchObject({ x1: 0.1, y1: 0.1, x2: 0.5, y2: 0.5 });
+  });
+
+  it('keeps a box that covers the whole frame at 0..1', () => {
+    // The invariant that makes any display size correct: the frame edges are 1.0.
+    const [box] = overlayBoxes(resultWithBox([480, 640], [0, 0, 640, 480]));
+    expect(box).toMatchObject({ x1: 0, y1: 0, x2: 1, y2: 1 });
   });
 
   it('labels a box with class, confidence and track id', () => {
-    const [box] = overlayBoxes(resultWithBox([480, 640], [0, 0, 10, 10]), 640, 480, true);
+    const [box] = overlayBoxes(resultWithBox([480, 640], [0, 0, 10, 10]), true);
     expect(box.label).toBe('person 87% #4');
     expect(box.color).toBeTruthy();
     expect(box.trackId).toBe(4);
   });
 
   it('omits labels when asked, for a cleaner live view', () => {
-    const [box] = overlayBoxes(resultWithBox([480, 640], [0, 0, 10, 10]), 640, 480, false);
+    const [box] = overlayBoxes(resultWithBox([480, 640], [0, 0, 10, 10]), false);
     expect(box.label).toBeUndefined();
   });
 
@@ -68,14 +90,13 @@ describe('overlayBoxes', () => {
     // Guessing a scale here would put every box in the wrong place, so the only
     // safe answer is to draw none.
     const degenerate = { ...resultWithBox([480, 640], [1, 2, 3, 4]), original_shape: [0, 0] } as ResultPayload;
-    expect(overlayBoxes(degenerate, 640, 480)).toEqual([]);
-    expect(overlayBoxes(resultWithBox([720, 1280], [1, 2, 3, 4]), 0, 0)).toEqual([]);
-    expect(overlayBoxes(null, 640, 480)).toEqual([]);
+    expect(overlayBoxes(degenerate)).toEqual([]);
+    expect(overlayBoxes(null)).toEqual([]);
   });
 
   it('handles a frame with no detections', () => {
     const empty = { ...resultWithBox([480, 640], [0, 0, 1, 1]), detections: null } as ResultPayload;
-    expect(overlayBoxes(empty, 640, 480)).toEqual([]);
+    expect(overlayBoxes(empty)).toEqual([]);
   });
 });
 

@@ -31,7 +31,9 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
  * When `onRegionChange` is supplied the region becomes editable: drag a vertex to
  * move it. Both the incoming `region` and the reported updates are in normalised
  * 0..1 space — the canvas scales them against its own rendered size, so callers
- * never have to know how large the overlay ended up.
+ * never have to know how large the overlay ended up. `boxes` use the same
+ * normalised space for the same reason: the caller knows the analysed frame but
+ * not the layout, and the camera's resolution is a third, unrelated size.
  */
 export function CanvasOverlay({
   imageUrl,
@@ -114,18 +116,26 @@ export function CanvasOverlay({
     }
 
     for (const box of boxes) {
+      // Boxes are normalised to the analysed frame, exactly like `region` above,
+      // and are scaled here against the canvas's own rendered size. Doing this
+      // against the camera's resolution instead is what shifted every box away
+      // from its object — and made the error change with the webcam's resolution.
+      const x1 = box.x1 * width;
+      const y1 = box.y1 * height;
+      const x2 = box.x2 * width;
+      const y2 = box.y2 * height;
       const color = box.color ?? classColor(0);
       context.lineWidth = lineWidth;
       context.strokeStyle = color;
-      context.strokeRect(box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1);
+      context.strokeRect(x1, y1, x2 - x1, y2 - y1);
       if (showLabels && box.label) {
         context.font = '600 11px Inter, system-ui, sans-serif';
         const textWidth = context.measureText(box.label).width;
         context.fillStyle = color;
-        context.fillRect(box.x1, Math.max(0, box.y1 - 16), textWidth + 8, 16);
+        context.fillRect(x1, Math.max(0, y1 - 16), textWidth + 8, 16);
         context.fillStyle = '#05070f';
         context.textBaseline = 'middle';
-        context.fillText(box.label, box.x1 + 4, Math.max(8, box.y1 - 8));
+        context.fillText(box.label, x1 + 4, Math.max(8, y1 - 8));
       }
     }
   }, [boxes, region, showLabels, lineWidth, editable]);

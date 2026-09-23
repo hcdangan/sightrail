@@ -93,6 +93,23 @@ pinned to it and `npm run version:check` fails the build if they disagree.
 
 ### Fixed
 
+* **Live detection boxes sat beside the object instead of on it — by an amount that
+  depended on the webcam's resolution.** The overlay scaled the analysed frame by the
+  camera's *intrinsic* size (`videoWidth`), and the canvas then drew those numbers as
+  CSS pixels, so the scale was wrong by the ratio of the two. With a
+  browser-negotiated stream at or below `captureFrame`'s 960px cap — 640x480 being the
+  common default — the factor was 1, so analysed pixels were drawn straight into a much
+  wider canvas and every box landed up and to the left of its object. A 1280x720 or
+  1920x1080 stream made the same bug push boxes right and oversized, which is why it
+  read as a layout problem rather than an arithmetic one.
+
+  `overlayBoxes` now returns coordinates normalised to 0..1 of the analysed frame, and
+  `CanvasOverlay` scales them against its own measured size — the contract `region`
+  already used. Nothing on the path needs to know the camera's resolution or the card's
+  width, so 640x480, 1280x720, 1920x1080 and portrait streams all place identically.
+  `StudioPage.test.tsx` covers the rendered-size mapping and asserts the drawn rectangle
+  is unchanged when the camera reports 1280x720 rather than 640x480.
+
 * **The CUDA reinstall advice could not work, and named stale indexes.** Following
   the `cpu-only-torch` remediation exactly as printed left the CPU build in place,
   so a "successful" reinstall and the same error message coexisted. Two causes:

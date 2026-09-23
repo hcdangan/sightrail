@@ -267,3 +267,70 @@ describe('live camera loop', () => {
     expect(await screen.findByText(/person/)).not.toBeNull();
   });
 });
+
+/**
+ * Where the boxes actually land.
+ *
+ * The reported failure was "the boxes have an offset to the left of the object".
+ * The cause was a unit mismatch: the page scaled the analysed frame by the
+ * camera's *resolution* (`videoWidth`) and the canvas then drew those numbers as
+ * CSS pixels, so the scale was wrong by the ratio between the two — and changed
+ * with the webcam. jsdom does no layout, so the rendered size is stubbed to make
+ * the draw call observable at all.
+ */
+describe('overlay geometry', () => {
+  /** jsdom reports every element as 0x0; give the overlay a size to draw into. */
+  function stubRenderedSize(width: number, height: number) {
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(width);
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(height);
+  }
+
+  /** Every rectangle the overlay stroked, as `[x, y, w, h]` in CSS pixels. */
+  function drawnRects(): number[][] {
+    return contexts.flatMap((context) => context.strokeRect.mock.calls.map((call) => call as unknown as number[]));
+  }
+
+  it('places boxes by the rendered size of the canvas', async () => {
+    stubRenderedSize(800, 600);
+    await startLoop();
+
+    await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+    FakeWebSocket.last!.emit(FRAME_RESULT);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // `xyxy` [64, 48, 320, 240] inside a 640x480 analysed frame is the rectangle
+    // 0.1,0.1 -> 0.5,0.5 of it. On an 800x600 canvas that is 80,60 -> 400,300.
+    // The old code drew it at 64,48 -> 320,240 (the raw analysed pixels, because
+    // the 640-wide camera made the scale factor exactly 1) — short of the object.
+    expect(drawnRects()).toContainEqual([80, 60, 320, 240]);
+  });
+
+  it('draws the same rectangle whatever resolution the webcam reports', async () => {
+    // A 1280x720 camera with the same 640x480 analysed frame: the geometry must not
+    // move. Scaling by `videoWidth` (the old behaviour) doubled it, pushing the box
+    // past the object instead of short of it — the offset's direction depended on
+    // the webcam, which is why this only showed up at some resolutions.
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 1280 });
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 720 });
+    stubRenderedSize(800, 600);
+    await startLoop();
+
+    await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+    FakeWebSocket.last!.emit(FRAME_RESULT);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(drawnRects()).toContainEqual([80, 60, 320, 240]);
+  });
+
+  it('follows the canvas when the layout changes', async () => {
+    // The other half of the contract: a wider card must scale the box with it.
+    stubRenderedSize(1600, 1200);
+    await startLoop();
+
+    await waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
+    FakeWebSocket.last!.emit(FRAME_RESULT);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(drawnRects()).toContainEqual([160, 120, 640, 480]);
+  });
+});
